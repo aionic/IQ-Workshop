@@ -1,0 +1,47 @@
+# ============================================================================
+# docker-compose.yml — Local Development Environment
+# Starts SQL Server 2022 Developer Edition + FastAPI tool service
+# Usage: docker compose up
+# ============================================================================
+
+services:
+  sql-server:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: iq-sql-server
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${SA_PASSWORD:-YourStr0ngP@ssword!}
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - ./data:/docker-entrypoint-initdb.d
+      - sql-data:/var/opt/mssql
+    entrypoint: /docker-entrypoint-initdb.d/local-init.sh
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -Q "SELECT 1" -C -b
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  api-tools:
+    build:
+      context: ./services/api-tools
+      dockerfile: Dockerfile
+    container_name: iq-api-tools
+    ports:
+      - "8000:8000"
+    environment:
+      - AZURE_SQL_SERVER_FQDN=sql-server
+      - AZURE_SQL_DATABASE_NAME=sqldb-iq
+      - DB_AUTH_MODE=password
+      - SA_PASSWORD=${SA_PASSWORD:-YourStr0ngP@ssword!}
+      - APPLICATIONINSIGHTS_CONNECTION_STRING=${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
+    depends_on:
+      sql-server:
+        condition: service_healthy
+
+volumes:
+  sql-data:

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "westus3"
+    },
+    "environmentName": {
+      "value": "dev"
+    },
+    "networkMode": {
+      "value": "public"
+    },
+    "entraAdminObjectId": {
+      "value": "98e79176-ff79-441d-ae4e-2bfc5ccf1a06"
+    },
+    "entraAdminDisplayName": {
+      "value": "Anthony Nevico"
+    },
+    "toolServiceImage": {
+      "value": "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+    }
+  }
+}

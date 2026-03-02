@@ -1,0 +1,99 @@
+# GitHub Copilot Agent Mode — Project Instructions
+
+## Project Identity
+
+This is **iq-foundry-iq-lab** — a Microsoft Foundry / Azure AI Foundry hosted agent workshop.
+The architecture is: **Foundry Hosted Agent → FastAPI Tool Service (Container Apps) → Azure SQL**.
+
+The agent triages network/service anomalies using simulated IQ data, proposes safe remediations,
+requires human approval, executes via allowlisted tools, and logs every decision with a `correlation_id`.
+
+## Architecture Overview
+
+- **Foundry Hosted Agent** — runs in Foundry Agent Service, tested via Agents playground. Defines instructions + tool wiring. Does NOT access the database directly in production.
+- **FastAPI Tool Service** — Python FastAPI app on Azure Container Apps (port 8000). Exposes 3 tool endpoints + 1 optional Teams endpoint. This is the ONLY component that writes to the database.
+- **Azure SQL** — stores `iq_devices`, `iq_anomalies`, `iq_tickets`, `iq_remediation_log`. Accessed via managed identity (token auth) in Azure; via SA password in local Docker container only.
+- **App Insights** — observability via `azure-monitor-opentelemetry`. All logs include `correlation_id`.
+
+## Build Phases
+
+Check `phases/` folder for current progress. Each phase file has `[ ]`/`[x]` checklists.
+Before starting work, read the relevant phase file to understand what's done and what remains.
+
+- **Phase 1:** Infrastructure + Data (Bicep, SQL schema, seed data, docker-compose)
+- **Phase 2:** API Service + Foundry Agent (FastAPI endpoints, schemas, agent.yaml, OpenAPI spec)
+- **Phase 3:** Governance + Observability + CI/CD + Docs (guardrails, safe fallback, Teams stub, labs)
+
+## Coding Conventions
+
+### Python
+- **Python 3.11+**, type hints on all function signatures
+- **`uv` is the ONLY Python package manager** — never use `pip`, `pip install`, `pip freeze`, or `pip-compile`. Use `uv pip install`, `uv pip compile`, `uv run`, `uv sync`, etc. This applies to CLI commands, Dockerfiles, CI workflows, and documentation.
+- **FastAPI** for HTTP endpoints, **Pydantic v2** for all request/response models
+- **snake_case** for Python identifiers, **kebab-case** for URL paths, **UPPER_SNAKE** for env vars
+- All functions that touch the DB go through `app/db.py` — never import `pyodbc` anywhere else
+- All request/response types defined in `app/schemas.py` — endpoints import from there
+- `correlation_id` is required on all mutating endpoints; generated server-side if missing
+- Structured JSON logging — every log entry includes `correlation_id`, `action`, `ticket_id` where applicable
+- TODO marker format: `# TODO(phase-N): description` — enables grep by phase
+
+### SQL
+- **Parameterized queries ONLY** — never use string concatenation or f-strings for SQL
+- All queries live in `app/db.py` as functions, not inline in endpoints
+- Read operations return minimal fields (no `SELECT *`)
+
+### Infrastructure (Bicep)
+- Single `main.bicep` with `networkMode` parameter (`public` | `private`)
+- Conditional resources for VNet/private endpoints gated on `networkMode == 'private'`
+- Two parameter files: `parameters.dev.json` (public, workshop default), `parameters.private.json` (private mode)
+- All resource names use prefix pattern: `{resourceType}-iq-lab-{environment}`
+
+## Security Rules — CRITICAL
+
+### Authentication & Identity
+- **Managed identity + token auth for ALL Azure deployments** — both public and private network modes
+- **`DB_AUTH_MODE` env var** controls auth: `password` for local Docker, `token` for Azure
+- **Never use connection strings with embedded passwords in Azure** — the only env vars in deployed environments are resource FQDNs and identity client IDs
+- **`DefaultAzureCredential`** for local dev (when not using Docker), **`ManagedIdentityCredential`** in production
+- **OIDC federated identity** for GitHub Actions (no stored client secrets)
+
+### Network Security
+- **`networkMode` parameter controls topology** — never hardcode public or private
+- When `networkMode == 'private'`: all resources use private endpoints, Container Apps is VNet-internal, AMPLS for App Insights
+- When `networkMode == 'public'`: standard public endpoints with firewall rules
+- **Never set `publicNetworkAccess: 'Enabled'` unconditionally** — always gate on `networkMode`
+
+### Data Security
+- **No secrets in code** — use `TODO: <PLACEHOLDER>` for all tenant/subscription/credential values
+- **No full datasets in prompts** — pass only identifiers + minimal structured fields to the model
+- **Agent runtime has read-only access** — only the tool service can write, and only to `iq_remediation_log` + `iq_tickets.status`
+- The `.env.example` file documents all env vars; `.env` is gitignored
+
+## File Routing Rules
+
+When making changes, update ALL related files:
+
+| Change | Files to update |
+|---|---|
+| Schema change (add/remove column) | `data/schema.sql`, `data/seed.sql`, `data/generator/generate_seed.py`, `services/api-tools/app/schemas.py`, `services/api-tools/app/db.py` |
+| New endpoint | `services/api-tools/app/main.py`, `services/api-tools/app/schemas.py`, `foundry/tools.openapi.json`, `services/api-tools/tests/test_endpoints.py` |
+| New env var | `.env.example`, `docker-compose.yml`, `services/api-tools/Dockerfile` (if needed), `foundry/agent.yaml`, `infra/bicep/main.bicep` |
+| Bicep resource change | `infra/bicep/main.bicep`, `infra/bicep/parameters.dev.json`, `infra/bicep/parameters.private.json` |
+| Guardrail change | `docs/guardrails.md`, `foundry/prompts/system.md` |
+
+## Testing
+
+- Every endpoint must have a test in `services/api-tools/tests/test_endpoints.py`
+- Tests use `httpx.AsyncClient` with `pytest-asyncio`
+- DB layer is mocked by default; set `TEST_USE_DB=true` to test against local SQL container
+- Run tests: `cd services/api-tools && uv run pytest`
+- Run locally: `docker compose up` from repo root
+
+## Local Development
+
+1. `cp .env.example .env` (adjust if needed)
+2. `docker compose up` — starts SQL Server + FastAPI
+3. SQL auto-seeded via `data/local-init.sh`
+4. Tool service at `http://localhost:8000`, health check at `GET /health`
+5. Install deps: `cd services/api-tools && uv pip install -r requirements.txt`
+6. Tests: `cd services/api-tools && uv run pytest`

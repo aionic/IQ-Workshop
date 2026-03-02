@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "eastus2"
+    },
+    "environmentName": {
+      "value": "dev"
+    },
+    "networkMode": {
+      "value": "private"
+    },
+    "entraAdminObjectId": {
+      "value": "TODO: your-entra-user-or-group-object-id"
+    },
+    "entraAdminDisplayName": {
+      "value": "TODO: Your Name or Group Name"
+    },
+    "vnetAddressPrefix": {
+      "value": "10.0.0.0/16"
+    },
+    "snetContainerAppsPrefix": {
+      "value": "10.0.1.0/24"
+    },
+    "snetPrivateEndpointsPrefix": {
+      "value": "10.0.2.0/24"
+    },
+    "toolServiceImage": {
+      "value": "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+    }
+  }
+}
