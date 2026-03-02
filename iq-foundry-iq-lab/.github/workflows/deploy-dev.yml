@@ -1,0 +1,71 @@
+# ============================================================================
+# deploy-dev.yml — Deploy to Azure (dev environment)
+# Triggered manually or on push to main
+# ============================================================================
+
+name: Deploy Dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - 'services/**'
+
+# OIDC federated identity — no stored client secrets
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP_NAME }}
+  CONTAINER_APP_NAME: ca-iq-lab-dev
+  IMAGE_NAME: iq-lab-tools
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- Azure Login (OIDC, no stored secrets) ----
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ---- Deploy Infrastructure (Bicep) ----
+      - name: Deploy Bicep
+        uses: azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template: infra/bicep/main.bicep
+          parameters: infra/bicep/parameters.dev.json
+          failOnStdErr: false
+
+      # ---- Build + Push Container Image ----
+      - name: Build image in ACR
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          az acr build \
+            --registry ${{ env.ACR_NAME }} \
+            --image ${{ env.IMAGE_NAME }}:$TIMESTAMP \
+            --image ${{ env.IMAGE_NAME }}:latest \
+            --platform linux/amd64 \
+            --file services/api-tools/Dockerfile \
+            services/api-tools/
+
+      # ---- Update Container App ----
+      - name: Update Container App image
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest

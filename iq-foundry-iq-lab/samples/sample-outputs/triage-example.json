@@ -1,0 +1,51 @@
+{
+  "_description": "Example end-to-end agent triage output for TKT-0042.",
+  "ticket_id": "TKT-0042",
+  "query_context": {
+    "ticket_id": "TKT-0042",
+    "status": "New",
+    "priority": "P2",
+    "severity": "High",
+    "signal_type": "jitter_spike",
+    "device_id": "DEV-0007",
+    "site_id": "SITE-03",
+    "model": "Nokia 7750 SR",
+    "health_state": "Degraded",
+    "metric_jitter_ms": 142.5,
+    "metric_loss_pct": 0.3,
+    "metric_latency_ms": 28.0,
+    "summary": "High jitter_spike on DEV-0007",
+    "customer_id": "CUST-003",
+    "owner": "alice.chen@contoso.com",
+    "created_utc": "2026-02-20T10:30:00",
+    "detected_utc": "2026-02-20T10:15:00"
+  },
+  "triage_summary": {
+    "severity": "High",
+    "signal_type": "jitter_spike",
+    "bullets": [
+      "Jitter 142.5 ms (loss 0.3%, latency 28 ms) on device DEV-0007 at site SITE-03, detected 2026-02-20T10:15:00",
+      "Device DEV-0007 (model: Nokia 7750 SR) health state: Degraded",
+      "Recommend: Escalate ticket to Investigate status for further analysis"
+    ]
+  },
+  "approval": {
+    "remediation_id": 1,
+    "approval_token": "1",
+    "status": "APPROVED",
+    "approved_by": "operator@contoso.com",
+    "approved_utc": "2026-02-20T11:30:00",
+    "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  "execution": {
+    "remediation_id": 1,
+    "outcome": "Executed: Escalate to Investigate — ticket TKT-0042 status updated",
+    "executed_utc": "2026-02-20T11:35:12",
+    "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  "teams_summary": {
+    "teams_posted": false,
+    "logged": true,
+    "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}

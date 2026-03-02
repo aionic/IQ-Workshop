@@ -1,0 +1,257 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "IQ Foundry Agent Lab — Tool Service API",
+    "description": "Tool endpoints for the IQ Foundry hosted agent. Provides ticket context queries, approval workflows, remediation execution, and optional Teams posting.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://TODO-your-container-app.azurecontainerapps.io",
+      "description": "Azure Container Apps deployment"
+    },
+    {
+      "url": "http://localhost:8000",
+      "description": "Local development"
+    }
+  ],
+  "paths": {
+    "/tools/query-ticket-context": {
+      "post": {
+        "operationId": "queryTicketContext",
+        "summary": "Query ticket context with linked anomaly and device data",
+        "description": "Returns minimal structured fields for a given ticket: ticket metadata, anomaly metrics, and device/site info. No full dataset — only scoped fields.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryTicketContextRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ticket context retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryTicketContextResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ticket not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/request-approval": {
+      "post": {
+        "operationId": "requestApproval",
+        "summary": "Request approval for a proposed remediation action",
+        "description": "Creates a pending approval request. Returns an approval token that must be presented to execute the remediation. The request must be approved via the admin endpoint before execution.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestApprovalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Approval request created (status: PENDING)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestApprovalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/execute-remediation": {
+      "post": {
+        "operationId": "executeRemediation",
+        "summary": "Execute an approved remediation action",
+        "description": "Validates the approval token is APPROVED, writes a remediation log entry, and optionally updates the ticket status. Requires a valid, approved approval_token.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteRemediationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Remediation executed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecuteRemediationResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Approval token not approved or invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/post-teams-summary": {
+      "post": {
+        "operationId": "postTeamsSummary",
+        "summary": "Post a remediation summary to Microsoft Teams",
+        "description": "Posts a triage/remediation summary to a Teams channel via webhook. If no webhook is configured, the payload is logged and teams_posted returns false. Always logs the payload for audit.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostTeamsSummaryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Summary processed (posted to Teams if webhook configured, otherwise logged only)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostTeamsSummaryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "QueryTicketContextRequest": {
+        "type": "object",
+        "required": ["ticket_id"],
+        "properties": {
+          "ticket_id": {
+            "type": "string",
+            "description": "The ticket identifier (e.g., TKT-0042)"
+          }
+        }
+      },
+      "QueryTicketContextResponse": {
+        "type": "object",
+        "properties": {
+          "ticket_id": { "type": "string" },
+          "status": { "type": "string" },
+          "priority": { "type": "string" },
+          "severity": { "type": "string" },
+          "signal_type": { "type": "string" },
+          "device_id": { "type": "string" },
+          "site_id": { "type": "string" },
+          "model": { "type": "string" },
+          "health_state": { "type": "string" },
+          "metric_jitter_ms": { "type": "number", "nullable": true },
+          "metric_loss_pct": { "type": "number", "nullable": true },
+          "metric_latency_ms": { "type": "number", "nullable": true },
+          "summary": { "type": "string" },
+          "customer_id": { "type": "string" },
+          "owner": { "type": "string", "nullable": true },
+          "created_utc": { "type": "string", "format": "date-time" },
+          "detected_utc": { "type": "string", "format": "date-time" }
+        }
+      },
+      "RequestApprovalRequest": {
+        "type": "object",
+        "required": ["ticket_id", "proposed_action", "rationale"],
+        "properties": {
+          "ticket_id": { "type": "string" },
+          "proposed_action": { "type": "string" },
+          "rationale": { "type": "string" },
+          "correlation_id": { "type": "string", "nullable": true }
+        }
+      },
+      "RequestApprovalResponse": {
+        "type": "object",
+        "properties": {
+          "remediation_id": { "type": "integer" },
+          "approval_token": { "type": "string", "description": "Present this token when calling execute-remediation" },
+          "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED", "EXECUTED"] },
+          "correlation_id": { "type": "string" }
+        }
+      },
+      "ExecuteRemediationRequest": {
+        "type": "object",
+        "required": ["ticket_id", "action", "approved_by", "approval_token", "correlation_id"],
+        "properties": {
+          "ticket_id": { "type": "string" },
+          "action": { "type": "string" },
+          "approved_by": { "type": "string" },
+          "approval_token": { "type": "string" },
+          "correlation_id": { "type": "string" }
+        }
+      },
+      "ExecuteRemediationResponse": {
+        "type": "object",
+        "properties": {
+          "remediation_id": { "type": "integer" },
+          "outcome": { "type": "string" },
+          "executed_utc": { "type": "string", "format": "date-time" },
+          "correlation_id": { "type": "string" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "detail": { "type": "string" },
+          "fallback": { "type": "boolean", "default": false }
+        }
+      },
+      "PostTeamsSummaryRequest": {
+        "type": "object",
+        "required": ["ticket_id", "summary", "action_taken", "approved_by", "correlation_id"],
+        "properties": {
+          "ticket_id": { "type": "string" },
+          "summary": { "type": "string" },
+          "action_taken": { "type": "string" },
+          "approved_by": { "type": "string" },
+          "correlation_id": { "type": "string" }
+        }
+      },
+      "PostTeamsSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "teams_posted": { "type": "boolean" },
+          "logged": { "type": "boolean" },
+          "correlation_id": { "type": "string" }
+        }
+      }
+    }
+  }
+}

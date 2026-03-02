@@ -1,0 +1,50 @@
+# ============================================================================
+# agent.yaml — Foundry Hosted Agent Definition
+# IQ Foundry Agent Lab — Network Operations Triage Agent
+# ============================================================================
+#
+# Deploy to Azure AI Foundry Agent Service.
+# Test via the Foundry Agents playground.
+#
+# References:
+#   - Foundry Agent Service overview: https://learn.microsoft.com/en-us/azure/foundry/agents/overview
+#   - Agent Service API: https://learn.microsoft.com/en-us/rest/api/aifoundry/aiagents/
+#   - Hosted agent quickstart: https://learn.microsoft.com/en-us/azure/foundry/agents/quickstarts/quickstart-hosted-agent
+# ============================================================================
+
+name: iq-foundry-iq-lab
+description: >
+  IQ Network Operations triage agent. Reads structured ticket/anomaly/device data,
+  produces terse triage summaries grounded in specific fields, proposes safe remediation
+  actions, requires human approval before execution, and logs every decision.
+
+template:
+  kind: hosted
+
+  # Protocol support — required for Foundry playground interaction
+  container_protocol_versions:
+    - protocol: responses
+      version: "1"
+
+  # Environment variables — resource FQDNs only, no secrets
+  # Replace TODO values with Bicep outputs after deployment:
+  #   az deployment group show -g <rg> -n main --query properties.outputs
+  environment_variables:
+    AZURE_SQL_SERVER_FQDN: "TODO: your-sql-server.database.windows.net"
+    AZURE_SQL_DATABASE_NAME: "sqldb-iq"
+    AZURE_CLIENT_ID: "TODO: client-id-of-id-iq-tools-managed-identity"
+    APPLICATIONINSIGHTS_CONNECTION_STRING: "TODO: from-bicep-output"
+    DB_AUTH_MODE: "token"
+
+# Tool definitions — reference OpenAPI spec
+tools:
+  - type: openapi
+    spec_file: tools.openapi.json
+    description: "IQ Lab tool endpoints for ticket context, approval, and remediation."
+
+# Instructions — loaded from prompts/system.md
+instructions_file: prompts/system.md
+
+# RAI configuration (optional — use Foundry defaults or customize)
+# rai_config:
+#   content_safety: default
