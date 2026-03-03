@@ -12,10 +12,10 @@
       "value": "public"
     },
     "entraAdminObjectId": {
-      "value": "TODO: your-entra-object-id"
+      "value": "TODO: your-entra-user-or-group-object-id"
     },
     "entraAdminDisplayName": {
-      "value": "TODO: Your Name"
+      "value": "TODO: Your Name or Group Name"
     },
     "toolServiceImage": {
       "value": "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
