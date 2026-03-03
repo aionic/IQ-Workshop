@@ -1,6 +1,6 @@
 # IQ Foundry Agent Lab — Session Status & Handoff
 
-> **Last updated:** 2026-03-03 (Architecture refactor — Prompt Agent + clean redeploy)
+> **Last updated:** 2026-03-03 (Agent Framework v2 SDK + gpt-4.1-mini + evals)
 > **Author:** Anthony Nevico + Copilot
 
 ---
@@ -62,7 +62,7 @@ az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties
 | **AI Services** | `ai-iq-lab-dev` (`https://ai-iq-lab-dev.cognitiveservices.azure.com/`) |
 | **Foundry Project** | `iq-lab-project` (standalone project under AI Services) |
 | **Project Endpoint** | `https://ai-iq-lab-dev.services.ai.azure.com/api/projects/iq-lab-project` |
-| **Model Deployment** | `gpt-4.1-mini` (GlobalStandard, 30K TPM, version 2025-08-07) |
+| **Model Deployment** | `gpt-4.1-mini` (GlobalStandard, 30K TPM, version 2025-04-14) |
 | **App Insights** | `InstrumentationKey=48e447dd-cbce-4d84-8375-7e704f28d31e` |
 
 ### Managed Identities
@@ -147,6 +147,23 @@ az account set --subscription 99d726d6-ee81-44f8-959f-4c4d59fddd82
 | `scripts/smoke-test.ps1` | E2E verification of all 7 endpoints |
 | `scripts/create_agent.py` | Python SDK agent registration (generated) |
 
+### Agent Evaluations
+
+```bash
+# Run the full eval suite
+uv run evals/run_evals.py --resource-group rg-iq-lab-dev
+
+# Run a single case with verbose output
+uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
+```
+
+| File | Purpose |
+|------|---------|
+| `evals/dataset.json` | 12 eval cases (triage, safety, governance, grounding) |
+| `evals/scorers.py` | 5 independent scorers (tool calls, grounding, format, safety, args) |
+| `evals/run_evals.py` | PEP 723 runner — sends prompts, scores responses, writes JSON report |
+| `evals/results/` | Timestamped JSON reports (gitignored) |
+
 ---
 
 ## Useful Commands
@@ -191,6 +208,7 @@ az deployment group create \
 | 🟡 Medium | **Private networking** | Set `networkMode=private` in params, redeploy — tests VNet integration |
 | 🟡 Medium | **CI/CD pipeline** | `.github/workflows/` exist — configure secrets and enable |
 | 🟢 Low | **Load testing** | Validate concurrency / cold-start behavior |
+| ✅ Done | **Agent evals** | 12-case eval suite: grounding, safety, governance, format |
 
 ---
 
