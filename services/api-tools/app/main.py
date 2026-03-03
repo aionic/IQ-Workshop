@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from starlette.routing import Mount
 
 from app import db
 from app.logging_config import (
@@ -25,6 +26,7 @@ from app.logging_config import (
     get_logger,
     setup_observability,
 )
+from app.mcp_server import mcp as mcp_server
 from app.schemas import (
     ApprovalRecord,
     DecideApprovalRequest,
@@ -53,7 +55,9 @@ async def lifespan(application: FastAPI):
     setup_observability()
     db.init_db_pool()
     logger.info("Application started.")
-    yield
+    async with mcp_server.session_manager.run():
+        logger.info("MCP session manager started.")
+        yield
     db.close_db_pool()
     logger.info("Application shut down.")
 
@@ -65,6 +69,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(CorrelationIdMiddleware)
+
+# Mount MCP server at /mcp (Streamable HTTP transport)
+app.routes.append(Mount("/mcp", app=mcp_server.streamable_http_app()))
 
 
 # -----------------------------------------------------------------------
@@ -95,9 +102,15 @@ async def health():
     "/tools/query-ticket-context",
     response_model=QueryTicketContextResponse,
     responses={404: {"model": ErrorResponse}},
+    deprecated=True,
 )
 async def query_ticket_context(body: QueryTicketContextRequest, request: Request):
-    """Return enriched ticket context with linked anomaly and device data."""
+    """Return enriched ticket context with linked anomaly and device data.
+
+    .. deprecated:: 0.2.0
+        Use the MCP endpoint at ``/mcp`` instead.
+    """
+    logger.warning("DEPRECATED /tools/query-ticket-context called — migrate to /mcp")
     logger.info("query-ticket-context ticket_id=%s", body.ticket_id)
 
     try:
@@ -129,9 +142,15 @@ async def query_ticket_context(body: QueryTicketContextRequest, request: Request
 @app.post(
     "/tools/request-approval",
     response_model=RequestApprovalResponse,
+    deprecated=True,
 )
 async def request_approval(body: RequestApprovalRequest, request: Request):
-    """Create a PENDING approval request for a proposed remediation."""
+    """Create a PENDING approval request for a proposed remediation.
+
+    .. deprecated:: 0.2.0
+        Use the MCP endpoint at ``/mcp`` instead.
+    """
+    logger.warning("DEPRECATED /tools/request-approval called — migrate to /mcp")
     cid = body.correlation_id or getattr(request.state, "correlation_id", str(uuid.uuid4()))
     logger.info("request-approval ticket_id=%s correlation_id=%s", body.ticket_id, cid)
 
@@ -166,9 +185,14 @@ async def request_approval(body: RequestApprovalRequest, request: Request):
     "/tools/execute-remediation",
     response_model=ExecuteRemediationResponse,
     responses={403: {"model": ErrorResponse}},
+    deprecated=True,
 )
 async def execute_remediation(body: ExecuteRemediationRequest, request: Request):
-    """Execute an approved remediation action and update the ticket."""
+    """Execute an approved remediation action and update the ticket.
+
+    .. deprecated:: 0.2.0
+        Use the MCP endpoint at ``/mcp`` instead.
+    """
     logger.info(
         "execute-remediation ticket_id=%s approval_token=%s correlation_id=%s",
         body.ticket_id,
@@ -299,10 +323,13 @@ async def decide_approval_endpoint(remediation_id: int, body: DecideApprovalRequ
 @app.post(
     "/tools/post-teams-summary",
     response_model=PostTeamsSummaryResponse,
+    deprecated=True,
 )
 async def post_teams_summary(body: PostTeamsSummaryRequest, request: Request):
     """Post a remediation summary to Teams.
 
+    .. deprecated:: 0.2.0
+        Use the MCP endpoint at ``/mcp`` instead.
     Phase 3 stub — logs the payload and returns logged=True.
     If TEAMS_WEBHOOK_URL is set, posts to the webhook.
     """

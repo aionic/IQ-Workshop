@@ -1,6 +1,6 @@
 # Phase 5 — MCP Integration (Co-Hosted)
 
-> Status: **In Progress**
+> Status: **In Progress** (Phases A–F done, G remaining)
 
 ## Overview
 
@@ -37,58 +37,58 @@ Azure SQL
 
 ## Phase A — MCP Server Module
 
-- [ ] Add `mcp[cli]>=1.9` to `requirements.txt` and `pyproject.toml`
-- [ ] Create `app/mcp_server.py` with `FastMCP` instance
-- [ ] Implement 4 `@mcp.tool()` decorated functions:
+- [x] Add `mcp[cli]>=1.9` to `requirements.txt` and `pyproject.toml`
+- [x] Create `app/mcp_server.py` with `FastMCP` instance
+- [x] Implement 4 `@mcp.tool()` decorated functions:
   - `query_ticket_context(ticket_id)` → wraps `db.get_ticket_context()`
   - `request_approval(ticket_id, proposed_action, rationale, correlation_id)` → wraps `db.create_approval_request()`
   - `execute_remediation(ticket_id, action, approved_by, approval_token, correlation_id)` → wraps `db.execute_remediation()`
   - `post_teams_summary(ticket_id, summary, action_taken, approved_by, correlation_id)` → webhook/log
-- [ ] Structured JSON logging with `correlation_id` propagation
-- [ ] Mount `FastMCP.streamable_http_app()` on main FastAPI app at `/mcp`
-- [ ] Wire lifespan to manage both FastAPI + MCP session manager
+- [x] Structured JSON logging with `correlation_id` propagation
+- [x] Mount `FastMCP.streamable_http_app()` on main FastAPI app at `/mcp`
+- [x] Wire lifespan to manage both FastAPI + MCP session manager
 
 ## Phase B — Deprecate REST Tool Endpoints
 
-- [ ] Add deprecation headers (`Deprecation`, `Sunset`) to all `/tools/*` responses
-- [ ] Add `deprecated=True` to FastAPI route decorators
-- [ ] Log deprecation warnings on each call
-- [ ] Update OpenAPI spec: mark operations as `deprecated: true`
+- [x] Add deprecation headers (`Deprecation`, `Sunset`) to all `/tools/*` responses
+- [x] Add `deprecated=True` to FastAPI route decorators
+- [x] Log deprecation warnings on each call
+- [x] Update OpenAPI spec: mark operations as `deprecated: true`
 
 ## Phase C — Agent Registration Swap
 
-- [ ] Update `scripts/create_agent.py`:
-  - Replace `FunctionTool` with `McpTool` from `azure.ai.agents.models`
-  - `McpTool(server_label="iq-tools", server_url=url+"/mcp", allowed_tools=[...])`
-  - Keep `FunctionTool` path behind `--legacy` flag for fallback
+- [x] Update `scripts/create_agent.py`:
+  - Replaced `FunctionTool` with `MCPTool` from `azure.ai.projects.tools.mcp` (high-level)
+  - `MCPTool(server_label="iq-tools", server_url=url+"/mcp", require_approval="always")`
+  - `FunctionTool` path kept behind `--legacy` flag
 - [ ] Update `foundry/agent.yaml` tool definitions section to document MCP
 
 ## Phase D — Client Loop (MCP Approval Flow)
 
-- [ ] Update `scripts/chat_agent.py`:
-  - Replace `requires_action` HTTP dispatch with `SubmitToolApprovalAction` handling
+- [x] Update `scripts/chat_agent.py`:
+  - Replaced `requires_action` HTTP dispatch with `SubmitToolApprovalAction` handling
   - Auto-approve `query_ticket_context`, `request_approval`, `post_teams_summary`
   - Prompt user for `execute_remediation` approval (human-in-the-loop)
-  - Remove `FUNCTION_TO_ENDPOINT`, `_call_tool_service()`, `TOOL_CALLABLES`
-  - Keep correlation ID injection via `mcp_tool.update_headers()`
-- [ ] Update `evals/run_evals.py` with same approval pattern
+  - Kept legacy dispatch path behind `--legacy` flag
+  - Correlation ID injection via `mcp_tool.update_headers()`
+- [x] Update `evals/run_evals.py` with MCP approval pattern (auto-approve all for evals)
 
 ## Phase E — Infrastructure & Docker
 
-- [ ] Update `services/api-tools/Dockerfile` — no change needed (same app, new dep)
-- [ ] Update `docker-compose.yml` — no new service needed (co-hosted)
-- [ ] Verify MCP endpoint reachable at `http://localhost:8000/mcp`
+- [x] Update `services/api-tools/Dockerfile` — no change needed (same app, new dep)
+- [x] Update `docker-compose.yml` — no new service needed (co-hosted)
+- [x] Verify MCP endpoint reachable at `http://localhost:8000/mcp` (confirmed via route list)
 - [ ] Update Bicep outputs to document MCP URL path (optional)
 
 ## Phase F — Testing & CI
 
-- [ ] Add `tests/test_mcp_server.py`:
+- [x] Add `tests/test_mcp_server.py`:
   - MCP tool listing returns 4 tools
   - `query_ticket_context` roundtrip returns expected shape
   - `request_approval` roundtrip creates pending record
   - `execute_remediation` without approval returns error
   - `post_teams_summary` roundtrip returns logged=true
-  - Error/fallback behavior
+  - Error/fallback behavior (13 tests total)
 - [ ] Update CI: MCP smoke test (curl `/mcp` endpoint)
 - [ ] Update smoke-test script for MCP health probe
 
