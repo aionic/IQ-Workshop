@@ -413,7 +413,7 @@ resource peAmplsDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroup
 // Azure AI Services + Model Deployment
 // -----------------------------------------------------------------------
 
-resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
+resource aiServices 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
   name: aiServicesName
   location: location
   kind: 'AIServices'
@@ -427,10 +427,24 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
     customSubDomainName: aiServicesName
     publicNetworkAccess: isPrivate ? 'Disabled' : 'Enabled'
     disableLocalAuth: false
+    allowProjectManagement: true
   }
 }
 
-resource aiModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+// Foundry project under AI Services (prompt agent + OpenAPI tools)
+var foundryProjectName = 'iq-lab-project'
+
+resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
+  parent: aiServices
+  name: foundryProjectName
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {}
+}
+
+resource aiModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
   parent: aiServices
   name: aiModelName
   sku: {
@@ -570,3 +584,5 @@ output miAgentName string = miAgent.name
 output aiServicesEndpoint string = aiServices.properties.endpoint
 output aiServicesName string = aiServices.name
 output aiModelDeploymentName string = aiModelDeployment.name
+output foundryProjectEndpoint string = 'https://${aiServicesName}.services.ai.azure.com/api/projects/${foundryProjectName}'
+output foundryProjectName string = foundryProject.name

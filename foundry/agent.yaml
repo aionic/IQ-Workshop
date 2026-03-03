@@ -1,52 +1,44 @@
 # ============================================================================
-# agent.yaml — Foundry Hosted Agent Definition
+# agent.yaml — Foundry Prompt Agent Definition
 # IQ Foundry Agent Lab — Network Operations Triage Agent
 # ============================================================================
 #
-# Deploy to Azure AI Foundry Agent Service.
-# Test via the Foundry Agents playground.
+# Architecture: Prompt Agent (LLM in Foundry) + OpenAPI Tools (FastAPI on Container Apps)
+# The agent runs gpt-5-mini via AI Foundry, calling tool endpoints on your Container App.
+# The FastAPI tool service is deployed and managed separately on Azure Container Apps.
+#
+# Deploy via Foundry MCP tools:
+#   foundry agent_update --projectEndpoint <endpoint> --agentName iq-triage-agent
 #
 # References:
-#   - Foundry Agent Service overview: https://learn.microsoft.com/en-us/azure/foundry/agents/overview
-#   - Agent Service API: https://learn.microsoft.com/en-us/rest/api/aifoundry/aiagents/
-#   - Hosted agent quickstart: https://learn.microsoft.com/en-us/azure/foundry/agents/quickstarts/quickstart-hosted-agent
+#   - Foundry Agent Service: https://learn.microsoft.com/azure/ai-foundry/agents/overview
+#   - Prompt Agent quickstart: https://learn.microsoft.com/azure/ai-foundry/agents/quickstarts/
 # ============================================================================
 
-name: iq-foundry-iq-lab
+name: iq-triage-agent
 description: >
   IQ Network Operations triage agent. Reads structured ticket/anomaly/device data,
   produces terse triage summaries grounded in specific fields, proposes safe remediation
   actions, requires human approval before execution, and logs every decision.
 
+# Agent definition — prompt agent (LLM-backed, not container-hosted)
 template:
-  kind: hosted
+  kind: prompt
+  model: gpt-5-mini
+  temperature: 0.3
 
-  # Protocol support — required for Foundry playground interaction
-  container_protocol_versions:
-    - protocol: responses
-      version: "1"
-
-  # Environment variables — resource FQDNs only, no secrets
-  # Replace TODO values with Bicep outputs after deployment:
-  #   az deployment group show -g <rg> -n main --query properties.outputs
-  environment_variables:
-    AZURE_SQL_SERVER_FQDN: "sql-iq-lab-dev.database.windows.net"
-    AZURE_SQL_DATABASE_NAME: "sqldb-iq"
-    AZURE_CLIENT_ID: "83254f15-4947-4671-9a2c-ce6b566af546"
-    APPLICATIONINSIGHTS_CONNECTION_STRING: "InstrumentationKey=48e447dd-cbce-4d84-8375-7e704f28d31e;IngestionEndpoint=https://westus3-1.in.applicationinsights.azure.com/;LiveEndpoint=https://westus3.livediagnostics.monitor.azure.com/;ApplicationId=8d20b7e9-85f6-4db8-b9cf-9f264f22b3fc"
-    DB_AUTH_MODE: "token"
-    AZURE_AI_SERVICES_ENDPOINT: "https://ai-iq-lab-dev.cognitiveservices.azure.com/"
-    AZURE_AI_MODEL_DEPLOYMENT: "gpt-5-mini"
-
-# Tool definitions — reference OpenAPI spec
+# Tool definitions — OpenAPI spec pointing to Container Apps tool service
 tools:
   - type: openapi
     spec_file: tools.openapi.json
     description: "IQ Lab tool endpoints for ticket context, approval, and remediation."
 
-# Instructions — loaded from prompts/system.md
+# System instructions
 instructions_file: prompts/system.md
 
-# RAI configuration (optional — use Foundry defaults or customize)
-# rai_config:
-#   content_safety: default
+# Deployment context (populated by deploy scripts / Bicep outputs)
+# These are NOT container env vars — they're reference values for scripts.
+deployment_context:
+  AZURE_AI_PROJECT_ENDPOINT: "TODO: https://ai-iq-lab-dev.services.ai.azure.com/api/projects/iq-lab-project"
+  TOOL_SERVICE_URL: "TODO: https://ca-tools-iq-lab-dev.<hash>.westus3.azurecontainerapps.io"
+  AI_MODEL_DEPLOYMENT: "gpt-5-mini"
