@@ -415,7 +415,7 @@ resource peAmplsDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroup
 // Azure AI Services + Model Deployment
 // -----------------------------------------------------------------------
 
-resource aiServices 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
+resource aiServices 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: aiServicesName
   location: location
   kind: 'AIServices'
@@ -436,7 +436,7 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = 
 // Foundry project under AI Services (prompt agent + OpenAPI tools)
 var foundryProjectName = 'iq-lab-project'
 
-resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
+resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
   parent: aiServices
   name: foundryProjectName
   location: location
@@ -446,7 +446,7 @@ resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-0
   properties: {}
 }
 
-resource aiModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
+resource aiModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: aiServices
   name: aiModelName
   sku: {
@@ -574,6 +574,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 // -----------------------------------------------------------------------
 
 output toolServiceUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
+output mcpServerUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}/mcp'
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
 output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output acrLoginServer string = acr.properties.loginServer

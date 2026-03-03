@@ -5,6 +5,7 @@
 | Component | Technology | Version |
 |---|---|---|
 | Tool Service | Python + FastAPI | 3.12+ / 0.110+ |
+| MCP Server | FastMCP co-hosted at `/mcp` | SSE transport |
 | Models | Pydantic v2 | 2.0+ |
 | Database | Azure SQL (deployed) / SQL Server Developer (local) | 2022 |
 | Infrastructure | Bicep | latest |
@@ -131,3 +132,27 @@ grep -rn "TODO(phase-3)" .   # Find all Phase 3 remaining tasks
 - Target pass rate: ≥ 90% (LLM non-determinism may cause occasional failures)
 - Adding cases: append to `dataset.json` `cases` array with `id`, `category`, `prompt`, `expected_tools`, `assertions`
 - Adding scorers: add function to `scorers.py`, register in `ALL_SCORERS` list
+
+## MCP Server
+
+- **MCP tools are defined in `services/api-tools/app/mcp_server.py`** and co-hosted on the FastAPI app at `/mcp`
+- Tool definitions delegate to the same `db.py` functions as the REST endpoints — no duplicated logic
+- MCP transport is SSE (Server-Sent Events) — compatible with VS Code Copilot, Claude Desktop, etc.
+- When adding a new tool: add to both `app/main.py` (REST) and `app/mcp_server.py` (MCP), sharing `db.py` + `schemas.py`
+- `create_agent.py` supports dual-mode dispatch: `--legacy` for FunctionTool, default for MCPTool via `mcp_server_url`
+
+## File Routing (MCP additions)
+
+| Change | Files to update |
+|---|---|
+| New MCP tool | `services/api-tools/app/mcp_server.py`, `services/api-tools/app/db.py` (if new query), `services/api-tools/tests/test_mcp_server.py` |
+| MCP config change | `services/api-tools/app/mcp_server.py`, `docker-compose.yml` (MCP_ENABLED env), `foundry/agent.yaml` |
+| New deployment script | Add both `scripts/<name>.ps1` (PowerShell) **and** `scripts/<name>.sh` (Bash) |
+
+## Cross-Platform Scripts
+
+- Every deployment script exists in **PowerShell** (`.ps1`) and **Bash** (`.sh`) variants
+- PowerShell scripts: Windows primary, `#Requires -Version 7.0`, use `Invoke-RestMethod` / `Invoke-Sqlcmd`
+- Bash scripts: macOS/Linux primary, `#!/usr/bin/env bash`, use `curl` / `sqlcmd` CLI / `python3` for JSON
+- CI (ubuntu-latest) uses the Bash variants
+- Both variants support the same operations and equivalent flags
