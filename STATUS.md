@@ -1,6 +1,6 @@
 # IQ Foundry Agent Lab — Session Status & Handoff
 
-> **Last updated:** 2025-01-XX (end of deployment session)
+> **Last updated:** 2026-03-03 (AI Foundry + gpt-5-mini deployment)
 > **Author:** Anthony Nevico + Copilot
 
 ---
@@ -57,7 +57,9 @@ az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties
 | **Active Revision** | `ca-tools-iq-lab-dev--0000003` |
 | **ACR** | `acriqlabdev.azurecr.io` |
 | **SQL Server** | `sql-iq-lab-dev.database.windows.net` |
-| **SQL Database** | `sqldb-iq-lab-dev` |
+| **SQL Database** | `sqldb-iq` |
+| **AI Services** | `ai-iq-lab-dev` (`https://ai-iq-lab-dev.cognitiveservices.azure.com/`) |
+| **Model Deployment** | `gpt-5-mini` (GlobalStandard, 30K TPM, version 2025-08-07) |
 | **App Insights** | `InstrumentationKey=48e447dd-cbce-4d84-8375-7e704f28d31e` |
 
 ### Managed Identities
@@ -67,7 +69,8 @@ az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties
 | **id-iq-tools-iq-lab-dev** (Tool Service) | `83254f15-4947-4671-9a2c-ce6b566af546` | `2f46d82c-54c4-4a0f-a661-809e3fa6ecdb` |
 | **id-iq-agent-iq-lab-dev** (Agent) | `c76f40f0-fa0d-4f32-938b-7bd50f5f4808` | `61640bea-4acf-4bd8-bf27-a5ccd1986de2` |
 
-Both MIs have `db_datareader` + `db_datawriter` roles on `sqldb-iq-lab-dev`.
+Both MIs have `db_datareader` + `db_datawriter` roles on `sqldb-iq`.
+Both MIs have `Cognitive Services OpenAI User` role on `ai-iq-lab-dev`.
 
 ### Database Contents
 
@@ -139,7 +142,7 @@ az containerapp logs show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --follow
 ```powershell
 $token = (az account get-access-token --resource https://database.windows.net --query accessToken -o tsv)
 Invoke-Sqlcmd -ServerInstance "sql-iq-lab-dev.database.windows.net" `
-  -Database "sqldb-iq-lab-dev" -AccessToken $token `
+  -Database "sqldb-iq" -AccessToken $token `
   -Query "SELECT COUNT(*) AS n FROM iq_devices"
 ```
 
@@ -157,11 +160,10 @@ az deployment group create \
 
 | Priority | Task | Notes |
 |----------|------|-------|
-| 🔴 High | **Wire Foundry Agent** to tool service | Connect `foundry/agent.yaml` to live `toolServiceUrl` in Azure AI Foundry |
+| 🔴 High | **Wire Foundry Agent in AI Foundry portal** | Register agent using `foundry/agent.yaml` in AI Foundry Agents playground |
 | 🟡 Medium | **Private networking** | Set `networkMode=private` in params, redeploy — tests VNet integration |
 | 🟡 Medium | **CI/CD pipeline** | `.github/workflows/` exist — configure secrets and enable |
 | 🟢 Low | **Load testing** | Validate concurrency / cold-start behavior |
-| 🟢 Low | **Git commit & push** | Local changes not yet committed — 4 files modified |
 
 ---
 

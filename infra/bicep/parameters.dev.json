@@ -19,6 +19,15 @@
     },
     "toolServiceImage": {
       "value": "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+    },
+    "aiModelName": {
+      "value": "gpt-5-mini"
+    },
+    "aiModelVersion": {
+      "value": "2025-08-07"
+    },
+    "aiModelCapacity": {
+      "value": 30
     }
   }
 }

@@ -37,6 +37,15 @@ param snetPrivateEndpointsPrefix string = '10.0.2.0/24'
 @description('Container image for tool service (use placeholder until first build)')
 param toolServiceImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
+@description('Model name to deploy in Azure AI Services')
+param aiModelName string = 'gpt-5-mini'
+
+@description('Model version')
+param aiModelVersion string = '2025-08-07'
+
+@description('Model deployment capacity in 1K TPM units (e.g. 30 = 30K TPM)')
+param aiModelCapacity int = 30
+
 // -----------------------------------------------------------------------
 // Variables
 // -----------------------------------------------------------------------
@@ -55,6 +64,7 @@ var miToolsName = 'id-iq-tools-${suffix}'
 var miAgentName = 'id-iq-agent-${suffix}'
 var vnetName = 'vnet-${suffix}'
 var amplsName = 'ampls-${suffix}'
+var aiServicesName = 'ai-${suffix}'
 
 // -----------------------------------------------------------------------
 // Managed Identities
@@ -400,6 +410,72 @@ resource peAmplsDnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroup
 }
 
 // -----------------------------------------------------------------------
+// Azure AI Services + Model Deployment
+// -----------------------------------------------------------------------
+
+resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
+  name: aiServicesName
+  location: location
+  kind: 'AIServices'
+  sku: {
+    name: 'S0'
+  }
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    customSubDomainName: aiServicesName
+    publicNetworkAccess: isPrivate ? 'Disabled' : 'Enabled'
+    disableLocalAuth: false
+  }
+}
+
+resource aiModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: aiServices
+  name: aiModelName
+  sku: {
+    name: 'GlobalStandard'
+    capacity: aiModelCapacity
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: aiModelName
+      version: aiModelVersion
+    }
+  }
+}
+
+// Cognitive Services OpenAI User role for tool service MI
+// Role: 5e0bd9bd-7b93-4f28-af87-19fc36ad61bd
+resource aiRoleTools 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiServices.id, miTools.id, '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
+  scope: aiServices
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    )
+    principalId: miTools.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Cognitive Services OpenAI User role for agent MI
+resource aiRoleAgent 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiServices.id, miAgent.id, '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
+  scope: aiServices
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    )
+    principalId: miAgent.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// -----------------------------------------------------------------------
 // Container Apps
 // -----------------------------------------------------------------------
 
@@ -491,3 +567,6 @@ output miAgentPrincipalId string = miAgent.properties.principalId
 output miAgentClientId string = miAgent.properties.clientId
 output miToolsName string = miTools.name
 output miAgentName string = miAgent.name
+output aiServicesEndpoint string = aiServices.properties.endpoint
+output aiServicesName string = aiServices.name
+output aiModelDeploymentName string = aiModelDeployment.name
