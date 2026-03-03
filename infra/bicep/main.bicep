@@ -38,10 +38,10 @@ param snetPrivateEndpointsPrefix string = '10.0.2.0/24'
 param toolServiceImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
 @description('Model name to deploy in Azure AI Services')
-param aiModelName string = 'gpt-5-mini'
+param aiModelName string = 'gpt-4.1-mini'
 
 @description('Model version')
-param aiModelVersion string = '2025-08-07'
+param aiModelVersion string = '2025-04-14'
 
 @description('Model deployment capacity in 1K TPM units (e.g. 30 = 30K TPM)')
 param aiModelCapacity int = 30

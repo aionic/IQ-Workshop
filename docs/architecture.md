@@ -3,7 +3,7 @@
 ## Overview
 
 The IQ Foundry Agent Lab demonstrates a production-shaped pattern for AI agent-assisted
-network operations triage. A **Prompt Agent** in Azure AI Foundry uses gpt-5-mini with
+network operations triage. A **Prompt Agent** in Azure AI Foundry uses gpt-4.1-mini with
 Responses API compatible **function tools**. The tool service is **self-hosted on Azure
 Container Apps** — a client program intercepts the agent’s `requires_action` events,
 calls the FastAPI endpoints, and submits results back.
@@ -18,7 +18,7 @@ calls the FastAPI endpoints, and submits results back.
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Foundry Prompt Agent | Azure AI Foundry + gpt-5-mini | LLM orchestration, function tool definitions |
+| Foundry Prompt Agent | Azure AI Foundry + gpt-4.1-mini | LLM orchestration, function tool definitions |
 | AI Services + Project | Microsoft.CognitiveServices/accounts | Hosts model deployment + Foundry project |
 | Tool Service | Python FastAPI on Azure Container Apps | Exposes tool endpoints (query, approve, execute) |
 | Database | Azure SQL (deployed) / SQL Server 2022 (local) | Stores tickets, anomalies, devices, remediation log |
@@ -37,7 +37,7 @@ flowchart LR
     subgraph Foundry["AI Foundry"]
       AIS[AI Services<br/>ai-iq-lab-dev]
       PROJ[Foundry Project<br/>iq-lab-project]
-      PA[Prompt Agent<br/>gpt-5-mini]
+      PA[Prompt Agent<br/>gpt-4.1-mini]
     end
     subgraph CAE["Container Apps Environment"]
       CA[Tool Service<br/>FastAPI :8000]
@@ -50,7 +50,7 @@ flowchart LR
 
   U --> PA
   AIS --> PA
-  PA -->|OpenAPI tool calls| CA
+  PA -->|function tool calls| CA
   CA -->|token auth<br/>id-iq-tools MI| SQL
   CA -->|telemetry| AI
   AI --> LA
@@ -67,7 +67,7 @@ flowchart LR
 
   subgraph Azure["Azure Resource Group"]
     subgraph Foundry["AI Foundry"]
-      PA[Prompt Agent<br/>gpt-5-mini]
+      PA[Prompt Agent<br/>gpt-4.1-mini]
     end
     subgraph VNet["vnet-iq-lab"]
       subgraph sn_app["sn-container-apps"]
@@ -89,7 +89,7 @@ flowchart LR
   end
 
   U --> PA
-  PA -->|function tool defs| CA
+  PA -->|function tool calls| CA
   CA -->|private endpoint| PE_SQL --> SQL
   CA -->|private endpoint| PE_ACR
   ACR --> PE_ACR
