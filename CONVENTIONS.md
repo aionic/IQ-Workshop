@@ -100,6 +100,8 @@ grep -rn "TODO(phase-3)" .   # Find all Phase 3 remaining tasks
 
 ## Testing
 
+### Unit Tests
+
 - Framework: `pytest` + `pytest-asyncio` + `httpx`
 - DB layer mocked by default via `unittest.mock.patch`
 - Set `TEST_USE_DB=true` to run integration tests against local SQL container
@@ -107,3 +109,25 @@ grep -rn "TODO(phase-3)" .   # Find all Phase 3 remaining tasks
 - One test file per module minimum; `test_endpoints.py` covers all API tests
 - Assert both response status codes and response body structure
 - Run: `cd services/api-tools && uv run pytest`
+
+#### Test file inventory (43 tests)
+
+| File | Tests | Focus |
+|---|---|---|
+| `test_endpoints.py` | 8 | Core endpoint behavior — query, approval flow, execution, Teams stub |
+| `test_fallback.py` | 6 | Safe fallback — every DB endpoint → 503 + `{"fallback": true}` on failure |
+| `test_validation.py` | 11 | Schema validation — missing/wrong fields → 422 Unprocessable Entity |
+| `test_openapi_spec.py` | 8 | OpenAPI spec validity — JSON parseable, paths exist, `$ref` resolution |
+| `test_edge_cases.py` | 10 | Edge cases — empty IDs, null fields, wrong HTTP method, unknown routes |
+
+### Agent Evaluations
+
+- Framework: custom eval runner (`evals/run_evals.py`) with PEP 723 inline dependencies
+- Runner: `uv run evals/run_evals.py --resource-group <rg>` (requires live Azure deployment)
+- Dataset: `evals/dataset.json` — 12 test cases across 6 categories
+- Scorers: `evals/scorers.py` — 5 independent scorers (tool_calls, grounding, format, safety, tool_call_args)
+- Results: timestamped JSON reports saved to `evals/results/` (gitignored)
+- Categories: triage (3), safety (4), governance (1), grounding (2), tool_use (1), consistency (1)
+- Target pass rate: ≥ 90% (LLM non-determinism may cause occasional failures)
+- Adding cases: append to `dataset.json` `cases` array with `id`, `category`, `prompt`, `expected_tools`, `assertions`
+- Adding scorers: add function to `scorers.py`, register in `ALL_SCORERS` list

@@ -177,13 +177,56 @@ curl http://localhost:8000/health
 # → {"status": "ok", "db": "connected"}
 ```
 
-### Step 3: Run tests
+### Step 3: Run the test suite
+
+The project includes **43 unit tests** across 5 test files. Run them with:
 
 ```bash
 cd services/api-tools
 uv sync --extra dev
 uv run pytest -v
 ```
+
+**Expected output:**
+
+```
+tests/test_endpoints.py::test_health_returns_ok PASSED
+tests/test_endpoints.py::test_query_ticket_context_success PASSED
+tests/test_endpoints.py::test_query_ticket_context_not_found PASSED
+tests/test_endpoints.py::test_request_approval_success PASSED
+tests/test_endpoints.py::test_execute_remediation_approved PASSED
+tests/test_endpoints.py::test_execute_remediation_unapproved PASSED
+tests/test_endpoints.py::test_approval_flow_end_to_end PASSED
+tests/test_endpoints.py::test_teams_summary_stub_no_webhook PASSED
+tests/test_fallback.py::test_query_ticket_context_db_error PASSED
+...
+======================== 43 passed in 2.xx s ========================
+```
+
+#### What the tests cover
+
+| Test file | Tests | What it validates |
+|---|---|---|
+| `test_endpoints.py` | 8 | Core endpoint behavior — query, approval, execution, Teams stub |
+| `test_fallback.py` | 6 | Safe fallback — every DB-dependent endpoint returns 503 + `{"fallback": true}` on DB failure |
+| `test_validation.py` | 11 | Schema validation — missing/wrong fields produce 422 Unprocessable Entity |
+| `test_openapi_spec.py` | 8 | OpenAPI spec validity — JSON parseable, paths exist, `$ref` pointers resolve |
+| `test_edge_cases.py` | 10 | Edge cases — empty ticket ID, null fields, wrong HTTP method, nonexistent routes |
+
+All tests mock the DB layer by default, so they run without a database connection.
+
+### Step 4: Run agent evaluations (Azure deployment only)
+
+If you've deployed to Azure and registered an agent, run the automated eval suite:
+
+```bash
+# From the repo root:
+uv run evals/run_evals.py --resource-group rg-iq-lab-dev
+```
+
+This sends 12 test prompts through the live agent and scores responses for grounding,
+safety, governance, and format compliance. See [Lab 5](lab-5-agent-evaluation.md) for a
+full walkthrough of the eval framework.
 
 ---
 
@@ -193,4 +236,6 @@ uv run pytest -v
 - [ ] Database seeded with schema + seed data (`SELECT COUNT(*) FROM dbo.iq_tickets` returns rows)
 - [ ] Managed identity permissions granted (Azure only)
 - [ ] `GET /health` returns `{"status": "ok", "db": "connected"}`
+- [ ] 43 unit tests pass (`uv run pytest -v` shows all green)
 - [ ] Agent loaded in Foundry playground (Azure only)
+- [ ] (Optional) Agent eval suite runs successfully (`uv run evals/run_evals.py`)

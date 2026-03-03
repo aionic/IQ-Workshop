@@ -149,3 +149,36 @@ The `correlation_id` in the Teams message traces back through:
 - Graceful degradation (stub works without configuration)
 - Full traceability (correlation_id from triage through Teams post)
 - Optional integration (Teams is additive, not required)
+
+---
+
+## Verify with Unit Tests
+
+The following tests validate Teams stub behavior and webhook posting at the API layer:
+
+```bash
+cd services/api-tools
+uv run pytest -v tests/test_endpoints.py::test_teams_summary_stub_no_webhook \
+  tests/test_edge_cases.py::test_teams_summary_with_webhook_success \
+  tests/test_validation.py::test_teams_summary_missing_fields \
+  tests/test_validation.py::test_teams_summary_empty_body
+```
+
+| Test | Lab step | What it checks |
+|---|---|---|
+| `test_teams_summary_stub_no_webhook` | Part A: Steps 2–3 | No `TEAMS_WEBHOOK_URL` → `teams_posted: false`, `logged: true` |
+| `test_teams_summary_with_webhook_success` | Part B: Steps 7–9 | With webhook URL + successful POST → `teams_posted: true` |
+| `test_teams_summary_missing_fields` | — | Missing required fields → 422 |
+| `test_teams_summary_empty_body` | — | Empty `{}` → 422 |
+
+### How the stub test works
+
+`test_teams_summary_stub_no_webhook` patches `os.environ` to set `TEAMS_WEBHOOK_URL` to
+an empty string, then POSTs a valid summary payload. It verifies the response contains
+`teams_posted: false` (nothing sent) and `logged: true` (payload recorded for audit).
+
+### How the webhook test works
+
+`test_teams_summary_with_webhook_success` patches both `os.environ` (with a fake webhook URL)
+and `httpx.AsyncClient` (to simulate a successful HTTP POST). It verifies that when the
+webhook is configured and the POST succeeds, the response returns `teams_posted: true`.
