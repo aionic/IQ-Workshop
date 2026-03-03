@@ -1,6 +1,6 @@
 # IQ Foundry Agent Lab — Session Status & Handoff
 
-> **Last updated:** 2026-03-03 (AI Foundry + gpt-5-mini deployment)
+> **Last updated:** 2026-03-03 (Architecture refactor — Prompt Agent + clean redeploy)
 > **Author:** Anthony Nevico + Copilot
 
 ---
@@ -29,6 +29,7 @@ az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties
 | **Phase 3** — Governance & Observability | ✅ Complete | CI/CD (GitHub Actions), safe fallback, docs, labs, samples |
 | **Phase 4** — Polish & Harden | ✅ Complete | pyproject.toml, pre-commit, 43 tests green, ruff clean, pyright clean |
 | **Deployment** — Azure Live | ✅ Complete | All resources provisioned, image v3 running, all 7 endpoints verified E2E |
+| **Refactor** — Prompt Agent | ✅ Complete | Switched from hosted→prompt agent, added Foundry project to Bicep, cleaned deps |
 
 ### Test Summary
 - **43 tests** across 5 files, all passing
@@ -59,6 +60,8 @@ az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties
 | **SQL Server** | `sql-iq-lab-dev.database.windows.net` |
 | **SQL Database** | `sqldb-iq` |
 | **AI Services** | `ai-iq-lab-dev` (`https://ai-iq-lab-dev.cognitiveservices.azure.com/`) |
+| **Foundry Project** | `iq-lab-project` (standalone project under AI Services) |
+| **Project Endpoint** | `https://ai-iq-lab-dev.services.ai.azure.com/api/projects/iq-lab-project` |
 | **Model Deployment** | `gpt-5-mini` (GlobalStandard, 30K TPM, version 2025-08-07) |
 | **App Insights** | `InstrumentationKey=48e447dd-cbce-4d84-8375-7e704f28d31e` |
 
@@ -183,7 +186,8 @@ az deployment group create \
 
 | Priority | Task | Notes |
 |----------|------|-------|
-| 🔴 High | **Register agent in AI Foundry portal** | Run `scripts/register-agent.ps1` and follow the guide |
+| 🔴 High | **Create prompt agent in Foundry** | Use MCP `agent_update` or `scripts/create_agent.py` |
+| 🔴 High | **Test agent E2E** | Invoke via playground or MCP `agents_connect` |
 | 🟡 Medium | **Private networking** | Set `networkMode=private` in params, redeploy — tests VNet integration |
 | 🟡 Medium | **CI/CD pipeline** | `.github/workflows/` exist — configure secrets and enable |
 | 🟢 Low | **Load testing** | Validate concurrency / cold-start behavior |

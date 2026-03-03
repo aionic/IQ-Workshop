@@ -3,14 +3,20 @@
 ## Overview
 
 The IQ Foundry Agent Lab demonstrates a production-shaped pattern for AI agent-assisted
-network operations triage. A Foundry-hosted agent reads structured data, proposes safe
-remediation actions, requires human approval, and logs every decision.
+network operations triage. A **Prompt Agent** in Azure AI Foundry uses gpt-5-mini to
+orchestrate tool calls against a FastAPI service on Container Apps, propose safe
+remediation actions, require human approval, and log every decision.
+
+**Key architectural decision**: The agent is a Foundry *Prompt Agent* (LLM-backed),
+not a hosted/containerized agent. The FastAPI tool service runs on Container Apps
+independently — Foundry calls it via OpenAPI tool definitions.
 
 ## Components
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Foundry Hosted Agent | Azure AI Foundry Agent Service | Orchestrates tool calls, chat interface |
+| Foundry Prompt Agent | Azure AI Foundry + gpt-5-mini | LLM orchestration, chat interface, tool calling |
+| AI Services + Project | Microsoft.CognitiveServices/accounts | Hosts model deployment + Foundry project |
 | Tool Service | Python FastAPI on Azure Container Apps | Exposes tool endpoints (query, approve, execute) |
 | Database | Azure SQL (deployed) / SQL Server 2022 (local) | Stores tickets, anomalies, devices, remediation log |
 | Observability | Application Insights + OpenTelemetry | Structured logging with correlation_id |
@@ -25,7 +31,11 @@ flowchart LR
   end
 
   subgraph Azure["Azure Resource Group"]
-    A[Foundry Hosted Agent]
+    subgraph Foundry["AI Foundry"]
+      AIS[AI Services<br/>ai-iq-lab-dev]
+      PROJ[Foundry Project<br/>iq-lab-project]
+      PA[Prompt Agent<br/>gpt-5-mini]
+    end
     subgraph CAE["Container Apps Environment"]
       CA[Tool Service<br/>FastAPI :8000]
     end
@@ -35,8 +45,9 @@ flowchart LR
     LA[Log Analytics Workspace]
   end
 
-  U --> A
-  A -->|tool calls via OpenAPI| CA
+  U --> PA
+  AIS --> PA
+  PA -->|OpenAPI tool calls| CA
   CA -->|token auth<br/>id-iq-tools MI| SQL
   CA -->|telemetry| AI
   AI --> LA
@@ -52,7 +63,9 @@ flowchart LR
   end
 
   subgraph Azure["Azure Resource Group"]
-    A[Foundry Hosted Agent]
+    subgraph Foundry["AI Foundry"]
+      PA[Prompt Agent<br/>gpt-5-mini]
+    end
     subgraph VNet["vnet-iq-lab"]
       subgraph sn_app["sn-container-apps"]
         CA[Tool Service<br/>FastAPI :8000]
@@ -72,8 +85,8 @@ flowchart LR
     AMPLS[Azure Monitor<br/>Private Link Scope]
   end
 
-  U --> A
-  A -->|tool calls| CA
+  U --> PA
+  PA -->|OpenAPI tool calls| CA
   CA -->|private endpoint| PE_SQL --> SQL
   CA -->|private endpoint| PE_ACR
   ACR --> PE_ACR
@@ -88,7 +101,7 @@ Two managed identities enforce the principle of least privilege:
 | Identity | Resource | Permissions |
 |---|---|---|
 | `id-iq-tools` | Tool Service (Container App) | **Read**: `iq_tickets`, `iq_anomalies`, `iq_devices`. **Write**: `iq_remediation_log`, `iq_tickets.status` only |
-| `id-iq-agent` | Foundry Hosted Agent | **No direct DB access.** Calls tool service endpoints only |
+| `id-iq-agent` | Foundry Prompt Agent | **No direct DB access.** Calls tool service endpoints only. Cognitive Services OpenAI User role on AI Services. |
 
 Key rules:
 - The agent identity **cannot** write to the database directly

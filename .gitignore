@@ -38,3 +38,4 @@ sql-data/
 htmlcov/
 .coverage
 *.cover
+infra/bicep/main.json
