@@ -40,7 +40,7 @@ flowchart LR
 
 ```bash
 # 1. Clone and configure
-git clone <repo-url> && cd iq-foundry-iq-lab
+git clone <repo-url> && cd IQ-Workshop
 cp .env.example .env
 
 # 2. Start SQL Server + tool service
@@ -111,10 +111,13 @@ This repo was built in 3 phases. See `phases/` for progress checklists:
 - [Troubleshooting](docs/troubleshooting.md) — Common issues and resolutions
 - [Playground Prompts](samples/playground-prompts.md) — Sample prompts for testing
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 ## Repository Structure
 
 ```
-iq-foundry-iq-lab/
 ├── .github/                    # Copilot instructions + CI/CD workflows
 ├── docs/                       # Architecture, guardrails, runbook, troubleshooting
 │   └── labs/                   # Lab 0–4 step-by-step guides
@@ -127,5 +130,6 @@ iq-foundry-iq-lab/
 ├── docker-compose.yml          # Local development environment
 ├── .env.example                # Environment variable template
 ├── CONVENTIONS.md              # Coding standards
+├── LICENSE                     # MIT license
 └── README.md                   # This file
 ```
