@@ -123,16 +123,39 @@ Both MIs have `Cognitive Services OpenAI User` role on `ai-iq-lab-dev`.
 
 ---
 
+## Turnkey Deployment Scripts
+
+All deployment is automated via PowerShell scripts in `scripts/`. See [scripts/README.md](scripts/README.md) for the full walkthrough.
+
+```powershell
+# Full deployment from scratch (~15 min)
+az login
+az account set --subscription 99d726d6-ee81-44f8-959f-4c4d59fddd82
+.\scripts\deploy.ps1 -SeedDatabase
+.\scripts\seed-database.ps1 -GrantPermissions
+.\scripts\register-agent.ps1
+```
+
+| Script | Purpose |
+|--------|--------|
+| `scripts/deploy.ps1` | Bicep infra + ACR image build + Container App update |
+| `scripts/seed-database.ps1` | Schema + seed data + MI permissions via Entra token |
+| `scripts/register-agent.ps1` | Foundry agent config output + Python SDK helper |
+| `scripts/smoke-test.ps1` | E2E verification of all 7 endpoints |
+| `scripts/create_agent.py` | Python SDK agent registration (generated) |
+
+---
+
 ## Useful Commands
 
 ### Rebuild & Redeploy the Tool Service
-```bash
-# Build (from services/api-tools/)
-az acr build --registry acriqlabdev --image iq-tools:v4 --platform linux/amd64 .
+```powershell
+# One-liner rebuild + redeploy
+.\scripts\deploy.ps1 -SkipBicep -ImageTag v5
 
-# Update container app
-az containerapp update -n ca-tools-iq-lab-dev -g rg-iq-lab-dev \
-  --image acriqlabdev.azurecr.io/iq-tools:v4
+# Or manually:
+az acr build --registry acriqlabdev --image iq-tools:v5 --platform linux/amd64 .
+az containerapp update -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --image acriqlabdev.azurecr.io/iq-tools:v5
 
 # Tail logs
 az containerapp logs show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --follow
@@ -160,7 +183,7 @@ az deployment group create \
 
 | Priority | Task | Notes |
 |----------|------|-------|
-| 🔴 High | **Wire Foundry Agent in AI Foundry portal** | Register agent using `foundry/agent.yaml` in AI Foundry Agents playground |
+| 🔴 High | **Register agent in AI Foundry portal** | Run `scripts/register-agent.ps1` and follow the guide |
 | 🟡 Medium | **Private networking** | Set `networkMode=private` in params, redeploy — tests VNet integration |
 | 🟡 Medium | **CI/CD pipeline** | `.github/workflows/` exist — configure secrets and enable |
 | 🟢 Low | **Load testing** | Validate concurrency / cold-start behavior |
