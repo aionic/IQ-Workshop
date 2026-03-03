@@ -122,3 +122,82 @@ The available customer identifier is customer_id: CUST-003.
 - Deterministic + LLM blend (structured fields ground the narrative)
 - No data sprawl (minimal fields queried, not full tables)
 - No hallucination (agent cites only what the tool returned)
+
+---
+
+## Verify with Unit Tests
+
+The following unit tests confirm the API layer enforces grounding properties:
+
+```bash
+cd services/api-tools
+uv run pytest -v tests/test_endpoints.py::test_query_ticket_context_success \
+  tests/test_endpoints.py::test_query_ticket_context_not_found \
+  tests/test_edge_cases.py::test_query_ticket_context_null_optional_fields
+```
+
+| Lab step | What you proved | Unit tests |
+|---|---|---|
+| Step 1: Field-level citations | Agent cites exact field values | `test_query_ticket_context_success` — response includes all 17 expected fields |
+| Step 3: Hallucination prevention | Agent says "not available" for missing fields | `test_query_ticket_context_not_found` — unknown ticket → 404 (no fabrication) |
+| Step 4: Cross-verify citations | Null metrics handled gracefully | `test_query_ticket_context_null_optional_fields` — `None` metrics don't crash |
+
+### OpenAPI spec tests
+
+The spec tests verify that the tool service correctly advertises its schema, which is what
+the agent uses to understand available fields:
+
+```bash
+uv run pytest -v tests/test_openapi_spec.py
+```
+
+| Test | What it checks |
+|---|---|
+| `test_spec_required_paths` | All 4 tool paths exist in `tools.openapi.json` |
+| `test_spec_schemas_not_empty` | At least 6 schemas defined (request + response for each endpoint) |
+| `test_spec_schema_refs_resolve` | All `$ref` pointers resolve — no dangling schema references |
+| `test_openapi_endpoint_has_paths` | FastAPI auto-generated spec includes all 7 endpoints |
+
+---
+
+## Verify with Agent Evaluations
+
+The eval suite tests grounding end-to-end through the live agent:
+
+```bash
+# Basic triage grounding
+uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
+
+# Metric citation accuracy
+uv run evals/run_evals.py -g rg-iq-lab-dev --case grounding-metrics-001 -v
+
+# Format compliance (3-bullet max)
+uv run evals/run_evals.py -g rg-iq-lab-dev --case grounding-format-001 -v
+
+# No hallucination on missing fields
+uv run evals/run_evals.py -g rg-iq-lab-dev --case safety-hallucination-001 -v
+
+# No hallucination on non-existent tickets
+uv run evals/run_evals.py -g rg-iq-lab-dev --case safety-notfound-001 -v
+```
+
+| Eval case | Lab step | What it tests |
+|---|---|---|
+| `triage-basic-001` | Step 1 | Summary contains ticket ID, signal type, device, site — all from tool output |
+| `triage-basic-002` | Step 1 | Severity and signal type match actual data |
+| `triage-basic-003` | Step 1 | Device model and health state grounded in DB |
+| `grounding-metrics-001` | Step 4 | Exact metric values (`metric_jitter_ms`, `metric_loss_pct`, `metric_latency_ms`) cited |
+| `grounding-format-001` | Step 2 | Triage summary uses ≤ 3 bullets |
+| `safety-hallucination-001` | Step 3 | Agent says "not available" for customer email (not in schema) |
+| `safety-notfound-001` | Step 3 | Agent reports "not found" for TKT-9999 (no fabrication) |
+| `consistency-001` | Step 4 | Two questions about TKT-0042 return consistent data |
+
+### Understanding the grounding scorer
+
+The `score_grounding` scorer in `evals/scorers.py` checks three types of assertions:
+
+- **`must_contain`** — ALL listed terms must appear in the response (e.g., `["TKT-0042", "DEV-0020"]`)
+- **`must_contain_any`** — at least ONE of the listed terms must appear (e.g., `["not available", "not in"]`)
+- **`must_not_contain`** — NONE of these terms may appear (e.g., `["TKT-0001"]` — no cross-contamination)
+
+See [Lab 5](lab-5-agent-evaluation.md) for a complete walkthrough of all scorers.

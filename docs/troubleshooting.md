@@ -136,3 +136,109 @@
 - 403 means the approval status is not `APPROVED` — check with `GET /admin/approvals`
 - Admin must call `POST /admin/approvals/{id}/decide` with `{"decision": "APPROVED", ...}` between the request and execute steps
 - Check system prompt instructs the agent to follow the query → approve → execute flow
+
+## Unit Test Issues
+
+### Common test failures
+
+**Symptom:** `uv run pytest` fails on one or more tests.
+
+**Solutions:**
+- Ensure you're in the correct directory: `cd services/api-tools`
+- Install dev dependencies: `uv sync --extra dev`
+- All 43 tests mock the DB layer — no database connection needed
+- If import errors occur, verify `tests/conftest.py` exists (it adds the parent directory to `sys.path`)
+
+### Specific test troubleshooting
+
+| Error | Likely cause | Fix |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'app'` | Not in `services/api-tools/` | `cd services/api-tools` then retry |
+| `pytest-asyncio` fixture error | Wrong fixture decorator | Use `@pytest_asyncio.fixture` for async fixtures |
+| `ASGITransport` import error | Old httpx version | `uv sync --extra dev` to update httpx |
+| 8 `test_openapi_spec` failures | `tools.openapi.json` schema mismatch | Regenerate spec from running app: `curl http://localhost:8000/openapi.json > foundry/tools.openapi.json` then update by hand |
+
+### Running tests against a live database
+
+By default, tests mock the DB layer. To run against a local SQL container:
+
+```bash
+# Start database
+docker compose up -d sqlserver
+# Wait ~20 seconds for SQL to start
+
+# Run with live DB
+TEST_USE_DB=true uv run pytest -v
+```
+
+## Agent Evaluation Issues
+
+### Eval runner fails to start
+
+**Symptom:** `uv run evals/run_evals.py` fails immediately.
+
+**Solutions:**
+- The eval runner uses PEP 723 inline dependencies — `uv run` installs them automatically
+- Ensure `uv` is installed: `uv --version` (need ≥ 0.5)
+- Verify Azure CLI is signed in: `az account show`
+- Check `.agent-state.json` exists with a valid `agent_id` (run `uv run scripts/create_agent.py` first)
+
+### Eval cases fail due to LLM non-determinism
+
+**Symptom:** A case passes sometimes but fails other times with the same prompt.
+
+**Understanding:** LLM responses are inherently non-deterministic. A passing score of
+**10–12 out of 12** is normal. Common non-deterministic failures include:
+
+| Case | Common failure mode | Why |
+|---|---|---|
+| `safety-refusal-001` | Agent rephrases refusal differently | LLM may say "I'm unable to" vs "I cannot" — both valid |
+| `safety-hallucination-001` | Agent mentions owner email from tool data | Owner field has an email; agent may cite it when asked about "email" |
+| `grounding-format-001` | Agent uses 4 bullets instead of 3 | LLM may add context the scorer counts as an extra bullet |
+
+**Solutions:**
+- Run individual failures with `-v` to see exactly what the agent said:
+  ```bash
+  uv run evals/run_evals.py -g rg-iq-lab-dev --case <case-id> -v
+  ```
+- If the response is reasonable but fails assertions, widen the assertions in `dataset.json`:
+  - `must_contain_any`: add more synonyms
+  - `must_not_contain`: remove overly strict terms
+- Run the failing case 3 times — if it passes at least once, it's non-determinism
+
+### Tool service unreachable during eval
+
+**Symptom:** Eval cases fail with connection errors or timeouts.
+
+**Solutions:**
+- Verify the tool service is running: `curl https://<your-ca-fqdn>/health`
+- The eval runner reads the Container App FQDN from Bicep outputs — ensure the deployment is current
+- If running locally, the eval runner talks to the Azure-deployed tool service, not localhost
+- Check that the Container App has at least 1 active replica:
+  ```bash
+  az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties.runningStatus"
+  ```
+
+### Understanding eval results
+
+Results are saved to `evals/results/eval-<timestamp>.json`. Key fields:
+
+| Field | Meaning |
+|---|---|
+| `summary.aggregate_score` | Weighted pass rate (0.0–1.0). Target: ≥ 0.90 |
+| `results[].scores[].scorer` | Which scorer evaluated this case |
+| `results[].scores[].passed` | Whether this specific check passed |
+| `results[].scores[].detail` | Human-readable explanation of pass/fail |
+| `results[].tool_calls` | Exact tool calls the agent made (function name + arguments) |
+
+### Adding new eval cases
+
+If you add a case to `dataset.json` and it fails:
+
+1. Run with `-v` to see the agent's actual response
+2. Check that `expected_tools` matches what the agent actually calls (snake_case names)
+3. Check that `must_contain` terms actually appear in the response (case-insensitive)
+4. Verify the assertion types are correct:
+   - `must_contain`: ALL terms must appear
+   - `must_contain_any`: at least ONE must appear
+   - `must_not_contain`: NONE may appear

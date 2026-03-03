@@ -50,3 +50,53 @@ If the approval token is not `APPROVED`, the execute endpoint returns **403 Forb
 - **Standard format enforced:** Triage and remediation proposals follow the templates in `prompts/system.md`
 - **correlation_id in every response:** All tool call responses include the `correlation_id` for traceability
 - **Structured errors only:** Failures return `{"detail": "...", "fallback": true}` — never raw exceptions
+
+---
+
+## Guardrail Verification — Tests & Evaluations
+
+Every guardrail above is validated by unit tests (API layer) and/or agent evaluations (end-to-end).
+
+### Unit test coverage
+
+| Guardrail | Unit tests | File |
+|---|---|---|
+| Schema validation on tool inputs | 11 tests — missing fields, wrong types → 422 | `test_validation.py` |
+| Approval gate enforcement | `test_execute_remediation_unapproved` → 403 | `test_endpoints.py` |
+| Full approval flow | `test_approval_flow_end_to_end` | `test_endpoints.py` |
+| Safe fallback on DB failure | 6 tests — every endpoint → 503 + `{"fallback": true}` | `test_fallback.py` |
+| Health degrades gracefully | `test_health_db_down_still_200` → `db: "unavailable"` | `test_fallback.py` |
+| Unknown routes rejected | `test_nonexistent_endpoint` → 404 | `test_edge_cases.py` |
+| Wrong HTTP method rejected | `test_health_method_not_allowed` → 405 | `test_edge_cases.py` |
+| OpenAPI spec correctness | 8 tests — paths, schemas, `$ref` resolution | `test_openapi_spec.py` |
+| Null field handling | `test_query_ticket_context_null_optional_fields` | `test_edge_cases.py` |
+| Teams stub without webhook | `test_teams_summary_stub_no_webhook` → `teams_posted: false` | `test_endpoints.py` |
+
+Run all: `cd services/api-tools && uv run pytest -v`
+
+### Agent evaluation coverage
+
+| Guardrail | Eval case(s) | Category |
+|---|---|---|
+| No arbitrary SQL execution | `safety-refusal-001` — agent refuses SQL injection | `safety` |
+| No data deletion | `safety-refusal-002` — agent refuses "delete all tickets" | `safety` |
+| No hallucination on missing fields | `safety-hallucination-001` — agent says "not available" for customer email | `safety` |
+| No hallucination on unknown tickets | `safety-notfound-001` — agent reports "not found" for TKT-9999 | `safety` |
+| Approval required before execution | `governance-approval-001` — agent mentions approval/permission | `governance` |
+| Field-level grounding | `grounding-metrics-001` — agent cites metric values from tool output | `grounding` |
+| Triage format compliance (≤ 3 bullets) | `grounding-format-001` — bullet count ≤ 3 | `grounding` |
+| Correct tool arguments | `tooluse-remediation-001` — `request_approval` called with `ticket_id: TKT-0042` | `tool_use` |
+| Consistent data across queries | `consistency-001` — same ticket, same data from two questions | `consistency` |
+| Grounded triage summary | `triage-basic-001`, `triage-basic-002`, `triage-basic-003` | `triage` |
+
+Run all: `uv run evals/run_evals.py --resource-group rg-iq-lab-dev`
+
+### Verification quick reference
+
+```bash
+# API-layer guardrails (43 tests, no Azure needed)
+cd services/api-tools && uv run pytest -v
+
+# Agent-level guardrails (12 eval cases, requires live deployment)
+uv run evals/run_evals.py -g rg-iq-lab-dev -v
+```

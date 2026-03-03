@@ -116,3 +116,119 @@ If not → response shows `teams_posted: false, logged: true`.
 - [ ] Application Insights receiving telemetry (check Live Metrics)
 - [ ] (Optional) `TEAMS_WEBHOOK_URL` set on the Container App if demoing Teams
 - [ ] Sample prompts ready (open `samples/playground-prompts.md`)
+- [ ] Unit tests pass (see "Running Tests" section below)
+
+---
+
+## Running Tests
+
+### Unit Tests — API Layer (No Azure Required)
+
+Run the full suite of **43 tests** to verify the tool service behavior:
+
+```bash
+cd services/api-tools
+uv sync --extra dev
+uv run pytest -v
+```
+
+**Expected:** All 43 tests pass in ~2 seconds.
+
+#### Test file walkthrough
+
+| File | Tests | What it covers |
+|---|---|---|
+| `test_endpoints.py` | 8 | Core functionality — health check, query tickets, approval flow, execution, Teams stub |
+| `test_fallback.py` | 6 | Safe fallback — every DB endpoint returns 503 + `{"fallback": true}` on DB failure |
+| `test_validation.py` | 11 | Schema validation — missing/wrong fields → 422 Unprocessable Entity |
+| `test_openapi_spec.py` | 8 | OpenAPI spec — JSON valid, paths exist, `$ref` pointers resolve, auto-generated spec matches |
+| `test_edge_cases.py` | 10 | Edge cases — empty IDs, null fields, wrong HTTP method, correlation ID headers |
+
+#### Running specific test categories
+
+```bash
+# Just endpoint tests
+uv run pytest -v tests/test_endpoints.py
+
+# Just safe fallback tests
+uv run pytest -v tests/test_fallback.py
+
+# Just schema validation tests
+uv run pytest -v tests/test_validation.py
+
+# A single specific test
+uv run pytest -v tests/test_endpoints.py::test_approval_flow_end_to_end
+```
+
+#### Key tests for demo purposes
+
+If time is limited, these 5 tests demonstrate the most important properties:
+
+```bash
+uv run pytest -v \
+  tests/test_endpoints.py::test_query_ticket_context_success \
+  tests/test_endpoints.py::test_execute_remediation_unapproved \
+  tests/test_endpoints.py::test_approval_flow_end_to_end \
+  tests/test_fallback.py::test_query_ticket_context_db_error \
+  tests/test_validation.py::test_query_ticket_context_missing_body
+```
+
+| Test | What it demonstrates |
+|---|---|
+| `test_query_ticket_context_success` | Correct ticket query returns all 17 grounding fields |
+| `test_execute_remediation_unapproved` | Unapproved token → 403 Forbidden (approval gate works) |
+| `test_approval_flow_end_to_end` | Full request → decide → execute cycle completes |
+| `test_query_ticket_context_db_error` | DB failure → 503 + fallback (not 500 crash) |
+| `test_query_ticket_context_missing_body` | Missing `ticket_id` → 422 (schema validation) |
+
+---
+
+## Running Agent Evaluations (Azure Required)
+
+### Full eval suite
+
+Run all 12 evaluation cases against the live agent:
+
+```bash
+uv run evals/run_evals.py --resource-group rg-iq-lab-dev
+```
+
+**Expected:** 11–12/12 cases pass (LLM non-determinism may cause occasional failures).
+
+### Verbose single-case run (for demo)
+
+```bash
+uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
+```
+
+Verbose mode shows:
+- Each tool call the agent made
+- The full agent response text
+- Per-scorer pass/fail (5 scorers: tool_calls, grounding, format, safety, tool_call_args)
+
+### Demo-worthy eval cases
+
+| Case | What it shows | Good for demo? |
+|---|---|---|
+| `triage-basic-001` | Agent queries TKT-0042, cites correct fields | Yes — shows grounding |
+| `safety-refusal-001` | Agent refuses SQL injection attempt | Yes — shows safety |
+| `safety-hallucination-001` | Agent says "not available" for missing field | Yes — shows no hallucination |
+| `governance-approval-001` | Agent mentions approval before executing | Yes — shows governance |
+| `tooluse-remediation-001` | Agent calls `request_approval` with correct args | Yes — shows tool use |
+
+### Reviewing results
+
+Results are saved as timestamped JSON in `evals/results/`:
+
+```bash
+# Show the latest report
+Get-ChildItem evals/results/ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content | ConvertFrom-Json
+
+# Or open in VS Code
+code evals/results/
+```
+
+Each report includes metadata (agent ID, model, timestamp), summary (pass/fail counts),
+and per-case details (prompt, response, tool calls, scorer breakdown).
+
+See [Lab 5 — Agent Evaluation](labs/lab-5-agent-evaluation.md) for a full guided walkthrough.

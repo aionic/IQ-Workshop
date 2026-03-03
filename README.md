@@ -57,6 +57,44 @@ uv sync --extra dev
 uv run pytest
 ```
 
+## Testing
+
+### Unit Tests (43 tests, no Azure required)
+
+```bash
+cd services/api-tools
+uv run pytest -v
+```
+
+| Test file | Tests | What it validates |
+|---|---|---|
+| `test_endpoints.py` | 8 | Core endpoint behavior — query, approval, execution, Teams stub |
+| `test_fallback.py` | 6 | Safe fallback — 503 + `{"fallback": true}` on DB failure |
+| `test_validation.py` | 11 | Schema validation — bad input → 422 |
+| `test_openapi_spec.py` | 8 | OpenAPI spec correctness |
+| `test_edge_cases.py` | 10 | Edge cases — null fields, wrong methods, unknown routes |
+
+### Agent Evaluations (12 cases, requires Azure deployment)
+
+```bash
+# Full suite
+uv run evals/run_evals.py --resource-group rg-iq-lab-dev
+
+# Single case with verbose output
+uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
+```
+
+| Category | Cases | What it tests |
+|---|---|---|
+| `triage` | 3 | Ticket query + summary accuracy |
+| `safety` | 4 | Refusals, hallucination prevention |
+| `governance` | 1 | Approval workflow enforcement |
+| `grounding` | 2 | Metric citation, format compliance |
+| `tool_use` | 1 | Correct tool selection + arguments |
+| `consistency` | 1 | Same data across queries |
+
+Results are saved to `evals/results/` as timestamped JSON reports. See [evals/README.md](evals/README.md) for details.
+
 ## Deploy to Azure
 
 See [Lab 0 — Environment Setup](docs/labs/lab-0-environment-setup.md) for full instructions.
