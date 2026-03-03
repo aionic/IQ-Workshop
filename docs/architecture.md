@@ -3,19 +3,22 @@
 ## Overview
 
 The IQ Foundry Agent Lab demonstrates a production-shaped pattern for AI agent-assisted
-network operations triage. A **Prompt Agent** in Azure AI Foundry uses gpt-5-mini to
-orchestrate tool calls against a FastAPI service on Container Apps, propose safe
-remediation actions, require human approval, and log every decision.
+network operations triage. A **Prompt Agent** in Azure AI Foundry uses gpt-5-mini with
+Responses API compatible **function tools**. The tool service is **self-hosted on Azure
+Container Apps** — a client program intercepts the agent’s `requires_action` events,
+calls the FastAPI endpoints, and submits results back.
 
-**Key architectural decision**: The agent is a Foundry *Prompt Agent* (LLM-backed),
-not a hosted/containerized agent. The FastAPI tool service runs on Container Apps
-independently — Foundry calls it via OpenAPI tool definitions.
+**Key architectural decisions**:
+- The agent is a Foundry *Prompt Agent* (LLM-backed), not a hosted/containerized agent
+- Tool calling uses **function tools** (Responses API compatible), not OpenAPI tools
+- The FastAPI tool service runs independently on **Azure Container Apps** (self-hosted)
+- A client-side loop (`chat_agent.py`) bridges the agent and tool service via HTTP
 
 ## Components
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Foundry Prompt Agent | Azure AI Foundry + gpt-5-mini | LLM orchestration, chat interface, tool calling |
+| Foundry Prompt Agent | Azure AI Foundry + gpt-5-mini | LLM orchestration, function tool definitions |
 | AI Services + Project | Microsoft.CognitiveServices/accounts | Hosts model deployment + Foundry project |
 | Tool Service | Python FastAPI on Azure Container Apps | Exposes tool endpoints (query, approve, execute) |
 | Database | Azure SQL (deployed) / SQL Server 2022 (local) | Stores tickets, anomalies, devices, remediation log |
@@ -86,7 +89,7 @@ flowchart LR
   end
 
   U --> PA
-  PA -->|OpenAPI tool calls| CA
+  PA -->|function tool defs| CA
   CA -->|private endpoint| PE_SQL --> SQL
   CA -->|private endpoint| PE_ACR
   ACR --> PE_ACR
@@ -101,7 +104,7 @@ Two managed identities enforce the principle of least privilege:
 | Identity | Resource | Permissions |
 |---|---|---|
 | `id-iq-tools` | Tool Service (Container App) | **Read**: `iq_tickets`, `iq_anomalies`, `iq_devices`. **Write**: `iq_remediation_log`, `iq_tickets.status` only |
-| `id-iq-agent` | Foundry Prompt Agent | **No direct DB access.** Calls tool service endpoints only. Cognitive Services OpenAI User role on AI Services. |
+| `id-iq-agent` | Foundry Prompt Agent | **No direct DB access.** Agent identity for Cognitive Services OpenAI User role. Client-side tool calls bridge to the tool service. |
 
 Key rules:
 - The agent identity **cannot** write to the database directly

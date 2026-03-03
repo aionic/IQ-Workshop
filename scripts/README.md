@@ -138,25 +138,32 @@ Tests all 7 endpoints:
 .\scripts\register-agent.ps1
 ```
 
-This script outputs the exact configuration to paste into the AI Foundry portal:
-- Agent name, model deployment, system prompt
-- Patched OpenAPI spec with your live tool service URL
-- Sample test prompts
+This creates a gpt-5-mini prompt agent with **Responses API compatible function tools**.
+Tool calls are handled client-side by `chat_agent.py`.
 
-**Option A — Portal (recommended for workshops):**
+**Option A — Python SDK (recommended, automated via `uv run`):**
+```powershell
+# uv auto-installs deps via PEP 723 inline metadata — no manual install needed
+uv run scripts/create_agent.py --resource-group rg-iq-lab-dev
+```
+
+**Option B — Portal (for manual/interactive setup):**
 1. Go to [ai.azure.com](https://ai.azure.com)
 2. Create or select a project in `westus3`
 3. Navigate to **Agents** → **+ New Agent**
 4. Set model to `gpt-5-mini`
 5. Paste system prompt from `foundry/prompts/system.md`
-6. Add OpenAPI tool using `foundry/tools.openapi.json` (update server URL to your Container App)
-7. Test in the playground
+6. Add function tools matching the definitions in `scripts/create_agent.py`
+7. Test via `uv run scripts/chat_agent.py --resource-group rg-iq-lab-dev`
 
-**Option B — Python SDK (automated via `uv run`):**
+### Phase 6: Test the Agent Interactively
+
 ```powershell
-# uv auto-installs deps via PEP 723 inline metadata — no manual install needed
-uv run scripts/create_agent.py --resource-group rg-iq-lab-dev
+# Start a chat session with the agent — handles tool calls automatically
+uv run scripts/chat_agent.py --resource-group rg-iq-lab-dev
 ```
+
+Try: `Summarize ticket TKT-0042`
 
 ---
 
@@ -169,6 +176,7 @@ uv run scripts/create_agent.py --resource-group rg-iq-lab-dev
 | `register-agent.ps1` | Foundry agent registration + SDK creation | `-AgentName`, `-ManualOnly` |
 | `smoke-test.ps1` | E2E endpoint verification | `-BaseUrl` (auto-detected from Bicep outputs) |
 | `create_agent.py` | Python SDK agent creation (PEP 723 deps) | `--resource-group` or env vars |
+| `chat_agent.py` | Interactive agent chat with client-side tool execution | `--resource-group`, `--agent-id`, `--single` |
 
 ---
 
@@ -224,12 +232,18 @@ az containerapp revision list -n <ca-name> -g <rg> -o table
 ┌─────────────────────────────────────────────────────────────────┐
 │                        AI Foundry Portal                         │
 │                   ┌──────────────────────────┐                   │
-│                   │   Foundry Hosted Agent    │                   │
+│                   │   Foundry Prompt Agent    │                   │
 │                   │   (gpt-5-mini)            │                   │
 │                   │   + system prompt          │                   │
-│                   │   + OpenAPI tools          │                   │
+│                   │   + function tools          │                   │
 │                   └──────────┬───────────────┘                   │
-│                              │ tool calls                        │
+│                              │ requires_action                   │
+│                              ▼                                   │
+│   ┌──────────────────────────────────────────────────────┐       │
+│   │   chat_agent.py (client-side tool loop)              │       │
+│   │   Intercepts requires_action, calls tool service     │       │
+│   └──────────────────────────┬───────────────────────────┘       │
+│                              │ HTTP calls                        │
 │                              ▼                                   │
 │   ┌──────────────────────────────────────────────────────┐       │
 │   │        Container App: ca-tools-iq-lab-dev             │       │

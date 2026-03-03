@@ -3,12 +3,16 @@
 # IQ Foundry Agent Lab — Network Operations Triage Agent
 # ============================================================================
 #
-# Architecture: Prompt Agent (LLM in Foundry) + OpenAPI Tools (FastAPI on Container Apps)
-# The agent runs gpt-5-mini via AI Foundry, calling tool endpoints on your Container App.
-# The FastAPI tool service is deployed and managed separately on Azure Container Apps.
+# Architecture: Prompt Agent (LLM in Foundry) + Function Tools (self-hosted FastAPI on ACA)
+# The agent runs gpt-5-mini via AI Foundry using Responses API compatible function tools.
+# Tool calls are handled client-side: the chat_agent.py script intercepts requires_action,
+# calls the FastAPI tool service on Container Apps, and submits outputs back.
 #
-# Deploy via Foundry MCP tools:
-#   foundry agent_update --projectEndpoint <endpoint> --agentName iq-triage-agent
+# Register via SDK:
+#   uv run scripts/create_agent.py --resource-group rg-iq-lab-dev
+#
+# Run interactively:
+#   uv run scripts/chat_agent.py --resource-group rg-iq-lab-dev
 #
 # References:
 #   - Foundry Agent Service: https://learn.microsoft.com/azure/ai-foundry/agents/overview
@@ -21,17 +25,28 @@ description: >
   produces terse triage summaries grounded in specific fields, proposes safe remediation
   actions, requires human approval before execution, and logs every decision.
 
-# Agent definition — prompt agent (LLM-backed, not container-hosted)
+# Agent definition — prompt agent (LLM-backed, self-hosted tool service on ACA)
 template:
   kind: prompt
   model: gpt-5-mini
   temperature: 0.3
 
-# Tool definitions — OpenAPI spec pointing to Container Apps tool service
+# Tool definitions — Responses API compatible function tools
+# These are defined as FunctionToolDefinition in create_agent.py.
+# The client (chat_agent.py) maps function names → HTTP endpoints on the tool service.
 tools:
-  - type: openapi
-    spec_file: tools.openapi.json
-    description: "IQ Lab tool endpoints for ticket context, approval, and remediation."
+  - type: function
+    name: queryTicketContext
+    description: "Query ticket context with linked anomaly and device data."
+  - type: function
+    name: requestApproval
+    description: "Request approval for a proposed remediation action."
+  - type: function
+    name: executeRemediation
+    description: "Execute an approved remediation action."
+  - type: function
+    name: postTeamsSummary
+    description: "Post a remediation summary to Microsoft Teams."
 
 # System instructions
 instructions_file: prompts/system.md
@@ -39,6 +54,6 @@ instructions_file: prompts/system.md
 # Deployment context (populated by deploy scripts / Bicep outputs)
 # These are NOT container env vars — they're reference values for scripts.
 deployment_context:
-  AZURE_AI_PROJECT_ENDPOINT: "TODO: https://ai-iq-lab-dev.services.ai.azure.com/api/projects/iq-lab-project"
-  TOOL_SERVICE_URL: "TODO: https://ca-tools-iq-lab-dev.<hash>.westus3.azurecontainerapps.io"
+  AZURE_AI_PROJECT_ENDPOINT: "TODO: <from Bicep outputs>"
+  TOOL_SERVICE_URL: "TODO: <from Bicep outputs>"
   AI_MODEL_DEPLOYMENT: "gpt-5-mini"

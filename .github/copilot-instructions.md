@@ -2,16 +2,17 @@
 
 ## Project Identity
 
-This is **iq-foundry-iq-lab** — a Microsoft Foundry / Azure AI Foundry hosted agent workshop.
-The architecture is: **Foundry Hosted Agent → FastAPI Tool Service (Container Apps) → Azure SQL**.
+This is **iq-foundry-iq-lab** — a Microsoft Foundry / Azure AI Foundry agent workshop.
+The architecture is: **Foundry Prompt Agent (gpt-5-mini) → client-side tool loop → FastAPI Tool Service (Container Apps) → Azure SQL**.
 
 The agent triages network/service anomalies using simulated IQ data, proposes safe remediations,
 requires human approval, executes via allowlisted tools, and logs every decision with a `correlation_id`.
 
 ## Architecture Overview
 
-- **Foundry Hosted Agent** — runs in Foundry Agent Service, tested via Agents playground. Defines instructions + tool wiring. Does NOT access the database directly in production.
-- **FastAPI Tool Service** — Python FastAPI app on Azure Container Apps (port 8000). Exposes 3 tool endpoints + 1 optional Teams endpoint. This is the ONLY component that writes to the database.
+- **Foundry Prompt Agent** — gpt-5-mini in Foundry Agent Service with Responses API compatible function tool definitions. Does NOT access the database directly.
+- **Client Tool Loop** — `chat_agent.py` intercepts `requires_action`, calls the FastAPI tool service over HTTP, and submits outputs back to the agent run.
+- **FastAPI Tool Service** — Python FastAPI app self-hosted on Azure Container Apps (port 8000). Exposes 3 tool endpoints + 1 optional Teams endpoint. This is the ONLY component that writes to the database.
 - **Azure SQL** — stores `iq_devices`, `iq_anomalies`, `iq_tickets`, `iq_remediation_log`. Accessed via managed identity (token auth) in Azure; via SA password in local Docker container only.
 - **App Insights** — observability via `azure-monitor-opentelemetry`. All logs include `correlation_id`.
 

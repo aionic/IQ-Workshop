@@ -4,9 +4,10 @@
     Register the IQ triage agent in Azure AI Foundry Agent Service.
 
 .DESCRIPTION
-    Resolves all values from the Bicep deployment outputs, patches the OpenAPI
-    spec with the live tool service URL, and creates the Foundry prompt agent
-    via the Python SDK (scripts/create_agent.py) using uv run.
+    Resolves all values from the Bicep deployment outputs and creates the Foundry
+    prompt agent via the Python SDK (scripts/create_agent.py) using uv run.
+    The agent uses Responses API compatible function tools (gpt-5-mini).
+    Tool calls are handled client-side by chat_agent.py.
 
     If uv is not installed, falls back to displaying manual registration
     instructions for the AI Foundry portal.
@@ -105,17 +106,6 @@ $systemPrompt = Get-Content $systemPromptPath -Raw
 Write-Ok "System prompt loaded ($($systemPrompt.Length) chars)"
 
 # -----------------------------------------------------------------------
-# Load OpenAPI spec and patch server URL
-# -----------------------------------------------------------------------
-$openApiPath = Join-Path $RepoRoot "foundry\tools.openapi.json"
-$openApiSpec = Get-Content $openApiPath -Raw | ConvertFrom-Json
-$openApiSpec.servers[0].url = $toolServiceUrl
-$openApiSpec.servers[0].description = "Azure Container Apps deployment (live)"
-$patchedSpecPath = Join-Path $env:TEMP "iq-tools-openapi-patched.json"
-$openApiSpec | ConvertTo-Json -Depth 20 | Set-Content $patchedSpecPath -Encoding UTF8
-Write-Ok "OpenAPI spec patched with live URL: $toolServiceUrl"
-
-# -----------------------------------------------------------------------
 # Create agent via SDK (unless -ManualOnly)
 # -----------------------------------------------------------------------
 if (-not $ManualOnly) {
@@ -165,9 +155,10 @@ if ($ManualOnly) {
   |  File: foundry/prompts/system.md                                 |
   |  (Copy the full contents into the agent's Instructions field)    |
   |                                                                  |
-  |  -- OpenAPI Tool --                                              |
-  |  Patched spec: $patchedSpecPath
-  |  (Upload as an OpenAPI tool definition)                          |
+  |  -- Tools --                                                     |
+  |  Function tools (Responses API compatible, defined in             |
+  |  scripts/create_agent.py). Client-side execution via              |
+  |  scripts/chat_agent.py.                                           |
   |                                                                  |
   +------------------------------------------------------------------+
 
@@ -178,8 +169,8 @@ if ($ManualOnly) {
     4. Click '+ New Agent'
     5. Select model: $modelDeployment
     6. Paste the system prompt from foundry/prompts/system.md
-    7. Add an OpenAPI tool using the patched spec above
-    8. Test with: "Summarize ticket TKT-0042"
+    7. Add function tools (see create_agent.py for definitions)
+    8. Test with: uv run scripts/chat_agent.py --resource-group $ResourceGroup
 
 "@ -ForegroundColor White
 }
