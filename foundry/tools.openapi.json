@@ -30,8 +30,9 @@
       "post": {
         "operationId": "queryTicketContext",
         "tags": ["tools"],
+        "deprecated": true,
         "summary": "Query ticket context with linked anomaly and device data",
-        "description": "Returns minimal structured fields for a given ticket: ticket metadata, anomaly metrics, and device/site info. No full dataset — only scoped fields.",
+        "description": "DEPRECATED — Use the MCP endpoint at /mcp instead. Returns minimal structured fields for a given ticket: ticket metadata, anomaly metrics, and device/site info.",
         "requestBody": {
           "required": true,
           "content": {
@@ -70,8 +71,9 @@
       "post": {
         "operationId": "requestApproval",
         "tags": ["tools"],
+        "deprecated": true,
         "summary": "Request approval for a proposed remediation action",
-        "description": "Creates a pending approval request. Returns an approval token that must be presented to execute the remediation. The request must be approved via the admin endpoint before execution.",
+        "description": "DEPRECATED — Use the MCP endpoint at /mcp instead. Creates a pending approval request. Returns an approval token that must be presented to execute the remediation.",
         "requestBody": {
           "required": true,
           "content": {
@@ -100,8 +102,9 @@
       "post": {
         "operationId": "executeRemediation",
         "tags": ["tools"],
+        "deprecated": true,
         "summary": "Execute an approved remediation action",
-        "description": "Validates the approval token is APPROVED, writes a remediation log entry, and optionally updates the ticket status. Requires a valid, approved approval_token.",
+        "description": "DEPRECATED — Use the MCP endpoint at /mcp instead. Validates the approval token is APPROVED, writes a remediation log entry, and optionally updates the ticket status.",
         "requestBody": {
           "required": true,
           "content": {
@@ -140,8 +143,9 @@
       "post": {
         "operationId": "postTeamsSummary",
         "tags": ["tools"],
+        "deprecated": true,
         "summary": "Post a remediation summary to Microsoft Teams",
-        "description": "Posts a triage/remediation summary to a Teams channel via webhook. If no webhook is configured, the payload is logged and teams_posted returns false. Always logs the payload for audit.",
+        "description": "DEPRECATED — Use the MCP endpoint at /mcp instead. Posts a triage/remediation summary to a Teams channel via webhook.",
         "requestBody": {
           "required": true,
           "content": {

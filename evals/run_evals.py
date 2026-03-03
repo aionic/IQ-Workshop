@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "azure-ai-projects",
+#     "azure-ai-projects>=2.0.0b2",
 #     "azure-ai-agents>=1.2.0b2",
 #     "azure-identity>=1.15.0",
 #     "httpx>=0.27",
@@ -10,17 +10,19 @@
 """
 run_evals.py — Run the IQ agent evaluation suite against a live Foundry agent.
 
-Loads test cases from ``evals/dataset.json``, sends each prompt through the
-agent (with client-side tool execution), scores the response with the scorers
-from ``evals/scorers.py``, and writes a results report to ``evals/results/``.
+Supports two tool modes (auto-detected from ``.agent-state.json``):
+
+**MCP mode** (default): Foundry Agent Service calls the MCP server directly.
+All tool calls are auto-approved (no human-in-the-loop during automated evals).
+
+**Legacy mode**: Client-side HTTP dispatch to FastAPI REST endpoints.
 
 Usage:
 
     uv run evals/run_evals.py --resource-group rg-iq-lab-dev
 
-    # Or with explicit env vars:
-    AZURE_AI_PROJECT_ENDPOINT=... TOOL_SERVICE_URL=... AGENT_ID=asst_...
-    uv run evals/run_evals.py
+    # Force legacy mode:
+    uv run evals/run_evals.py --resource-group rg-iq-lab-dev --legacy
 
     # Run a single case:
     uv run evals/run_evals.py --resource-group rg-iq-lab-dev --case triage-basic-001
@@ -43,8 +45,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from azure.ai.agents.models import MessageRole, RunStatus, ToolOutput
+from azure.ai.agents.models import (
+    MessageRole,
+    RequiredMcpToolCall,
+    RunStatus,
+    SubmitToolApprovalAction,
+    ToolApproval,
+    ToolOutput,
+)
 from azure.ai.projects import AIProjectClient
+from azure.ai.projects.tools.mcp import MCPTool
 from azure.identity import DefaultAzureCredential
 
 # ---------------------------------------------------------------------------
@@ -97,7 +107,96 @@ def _call_tool_service(function_name: str, arguments: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Agent turn — returns response + structured tool call log
+# Agent turn — MCP mode (auto-approve all tools for evals)
+# ---------------------------------------------------------------------------
+
+
+def run_agent_turn_mcp(
+    project_client: AIProjectClient,
+    thread_id: str,
+    agent_id: str,
+    user_message: str,
+    mcp_tool: MCPTool,
+    verbose: bool = False,
+) -> tuple[str, list[dict]]:
+    """MCP mode: send a message, auto-approve all tools, return reply + log.
+
+    During automated evals, ALL MCP tool calls are auto-approved so the
+    agent can run end-to-end without human intervention.
+    """
+    tool_call_log: list[dict] = []
+    turn_correlation_id = str(uuid.uuid4())
+    mcp_tool.update_headers("X-Correlation-ID", turn_correlation_id)
+
+    project_client.agents.messages.create(
+        thread_id=thread_id, role="user", content=user_message,
+    )
+
+    run = project_client.agents.runs.create(
+        thread_id=thread_id,
+        agent_id=agent_id,
+        tool_resources=mcp_tool.resources,
+    )
+
+    while run.status in (RunStatus.QUEUED, RunStatus.IN_PROGRESS, RunStatus.REQUIRES_ACTION):
+        if run.status == RunStatus.REQUIRES_ACTION:
+            if isinstance(run.required_action, SubmitToolApprovalAction):
+                tool_calls = run.required_action.submit_tool_approval.tool_calls
+                if not tool_calls:
+                    project_client.agents.runs.cancel(thread_id=thread_id, run_id=run.id)
+                    return "[Run cancelled: empty tool-call list]", tool_call_log
+
+                tool_approvals: list[ToolApproval] = []
+                for tc in tool_calls:
+                    if not isinstance(tc, RequiredMcpToolCall):
+                        continue
+                    if verbose:
+                        print(f"    -> MCP auto-approve: {tc.name}({tc.arguments})")
+                    tool_call_log.append({
+                        "function_name": tc.name,
+                        "arguments": tc.arguments,
+                        "output": "(MCP server-side execution)",
+                    })
+                    tool_approvals.append(
+                        ToolApproval(
+                            tool_call_id=tc.id,
+                            approve=True,
+                            headers=mcp_tool.headers,
+                        )
+                    )
+
+                if tool_approvals:
+                    run = project_client.agents.runs.submit_tool_outputs(
+                        thread_id=thread_id,
+                        run_id=run.id,
+                        tool_approvals=tool_approvals,
+                    )
+                continue
+            else:
+                return f"[Unexpected action: {type(run.required_action).__name__}]", tool_call_log
+
+        time.sleep(1)
+        run = project_client.agents.runs.get(thread_id=thread_id, run_id=run.id)
+
+    if run.status == RunStatus.FAILED:
+        return f"[Run failed: {run.last_error}]", tool_call_log
+    if run.status != RunStatus.COMPLETED:
+        return f"[Run ended with status: {run.status}]", tool_call_log
+
+    messages = project_client.agents.messages.list(thread_id=thread_id, order="desc")
+    for msg in messages:
+        if msg.role == MessageRole.AGENT:
+            parts = []
+            for block in msg.content:
+                if hasattr(block, "text"):
+                    parts.append(block.text.value)
+            if parts:
+                return "\n".join(parts), tool_call_log
+    return "[No response]", tool_call_log
+
+
+# ---------------------------------------------------------------------------
+# Agent turn — Legacy mode (returns response + structured tool call log)
 # ---------------------------------------------------------------------------
 
 
@@ -286,6 +385,11 @@ def main() -> None:
     parser.add_argument("--agent-id", default="")
     parser.add_argument("--case", "-c", default="", help="Run a single case by ID.")
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Force legacy FunctionTool mode (HTTP dispatch) instead of MCP.",
+    )
     args = parser.parse_args()
 
     # --- Resolve configuration ---
@@ -293,6 +397,9 @@ def main() -> None:
     project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "")
     _tool_service_url = state.get("tool_service_url", os.environ.get("TOOL_SERVICE_URL", ""))
     agent_id = args.agent_id or state.get("agent_id", os.environ.get("AGENT_ID", ""))
+
+    # Determine tool mode: CLI flag overrides state file
+    tool_mode = "legacy" if args.legacy else state.get("tool_mode", "legacy")
 
     if args.resource_group:
         vals = _resolve_from_bicep(args.resource_group)
@@ -318,9 +425,20 @@ def main() -> None:
             print(f"ERROR: Case '{args.case}' not found in dataset.", file=sys.stderr)
             sys.exit(1)
 
+    # --- Construct MCPTool for MCP mode ---
+    mcp_tool: MCPTool | None = None
+    if tool_mode == "mcp":
+        mcp_server_url = state.get("mcp_server_url", f"{_tool_service_url}/mcp")
+        mcp_tool = MCPTool(
+            server_label="iq-tools",
+            server_url=mcp_server_url,
+            require_approval="always",
+        )
+
     print(f"Project:  {project_endpoint}")
     print(f"Tools:    {_tool_service_url}")
     print(f"Agent:    {agent_id}")
+    print(f"Mode:     {'MCP (auto-approve all)' if mcp_tool else 'Legacy (HTTP dispatch)'}")
     print(f"Cases:    {len(cases)}")
     print()
 
@@ -342,9 +460,14 @@ def main() -> None:
         thread = project_client.agents.threads.create()
 
         t0 = time.time()
-        agent_response, tool_call_log = run_agent_turn(
-            project_client, thread.id, agent_id, prompt, verbose=args.verbose,
-        )
+        if mcp_tool:
+            agent_response, tool_call_log = run_agent_turn_mcp(
+                project_client, thread.id, agent_id, prompt, mcp_tool, verbose=args.verbose,
+            )
+        else:
+            agent_response, tool_call_log = run_agent_turn(
+                project_client, thread.id, agent_id, prompt, verbose=args.verbose,
+            )
         elapsed = round(time.time() - t0, 2)
 
         # Score
@@ -372,6 +495,7 @@ def main() -> None:
         "agent_id": agent_id,
         "project_endpoint": project_endpoint,
         "tool_service_url": _tool_service_url,
+        "tool_mode": tool_mode,
         "model": "gpt-4.1-mini",
         "dataset_version": dataset.get("_version", "unknown"),
     }

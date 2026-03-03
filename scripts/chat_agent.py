@@ -1,23 +1,34 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "azure-ai-projects",
+#     "azure-ai-projects>=2.0.0b2",
 #     "azure-ai-agents>=1.2.0b2",
 #     "azure-identity>=1.15.0",
 #     "httpx>=0.27",
 # ]
 # ///
 """
-chat_agent.py — Interactive chat loop with client-side tool execution.
+chat_agent.py — Interactive chat loop with the IQ triage agent.
 
-Uses Agent Framework v2 SDK (``AIProjectClient`` + ``FunctionTool``).
-Connects to the Foundry agent created by create_agent.py, sends user messages,
-intercepts requires_action events, calls the FastAPI tool service over HTTP,
-and submits tool outputs back to the agent run.
+Supports two tool modes based on how the agent was registered (create_agent.py):
+
+**MCP mode** (default):
+  The Foundry Agent Service calls the MCP server on the FastAPI tool service
+  directly over Streamable HTTP.  This client handles MCP approval requests —
+  auto-approves safe tools (query, request-approval, teams) and prompts the
+  human operator for ``execute_remediation`` (human-in-the-loop).
+
+**Legacy mode** (``--legacy`` or ``tool_mode=legacy`` in ``.agent-state.json``):
+  The client intercepts ``requires_action`` events, calls the FastAPI REST
+  endpoints over HTTP, and submits tool outputs back to the agent run.
 
 Usage:
 
     uv run scripts/chat_agent.py --resource-group rg-iq-lab-dev
+
+Legacy mode:
+
+    uv run scripts/chat_agent.py --resource-group rg-iq-lab-dev --legacy
 
 Or with explicit env vars:
 
@@ -39,11 +50,25 @@ import uuid
 from pathlib import Path
 
 import httpx
-from azure.ai.agents.models import MessageRole, RunStatus, ToolOutput
+from azure.ai.agents.models import (
+    MessageRole,
+    RequiredMcpToolCall,
+    RunStatus,
+    SubmitToolApprovalAction,
+    ToolApproval,
+    ToolOutput,
+)
 from azure.ai.projects import AIProjectClient
+from azure.ai.projects.tools.mcp import MCPTool
 from azure.identity import DefaultAzureCredential
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# ---------------------------------------------------------------------------
+# MCP approval policy — auto-approve safe tools, require human for mutations
+# ---------------------------------------------------------------------------
+AUTO_APPROVE_TOOLS = {"query_ticket_context", "request_approval", "post_teams_summary"}
+HUMAN_APPROVE_TOOLS = {"execute_remediation"}
 
 # ---------------------------------------------------------------------------
 # Module-level tool service URL — set at runtime before tool functions are
@@ -228,7 +253,114 @@ def _load_agent_state() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Agent turn — poll loop with client-side tool execution
+# Agent turn — MCP mode (approval flow, no client-side tool dispatch)
+# ---------------------------------------------------------------------------
+
+
+def run_agent_turn_mcp(
+    project_client: AIProjectClient,
+    thread_id: str,
+    agent_id: str,
+    user_message: str,
+    mcp_tool: MCPTool,
+) -> str:
+    """MCP mode: send a message, handle MCP tool approvals, return reply.
+
+    The Foundry Agent Service calls the MCP server directly.  This client
+    only handles approval/rejection of each tool invocation:
+    - Tools in AUTO_APPROVE_TOOLS are approved automatically.
+    - Tools in HUMAN_APPROVE_TOOLS prompt the operator for confirmation.
+    - Unknown tools are rejected.
+    """
+    turn_correlation_id = str(uuid.uuid4())
+    mcp_tool.update_headers("X-Correlation-ID", turn_correlation_id)
+
+    # Post user message
+    project_client.agents.messages.create(
+        thread_id=thread_id, role="user", content=user_message,
+    )
+
+    # Start a run — tool_resources carries MCP headers + approval config
+    run = project_client.agents.runs.create(
+        thread_id=thread_id,
+        agent_id=agent_id,
+        tool_resources=mcp_tool.resources,
+    )
+
+    # Poll until terminal state
+    while run.status in (RunStatus.QUEUED, RunStatus.IN_PROGRESS, RunStatus.REQUIRES_ACTION):
+        if run.status == RunStatus.REQUIRES_ACTION:
+            if isinstance(run.required_action, SubmitToolApprovalAction):
+                tool_calls = run.required_action.submit_tool_approval.tool_calls
+                if not tool_calls:
+                    project_client.agents.runs.cancel(thread_id=thread_id, run_id=run.id)
+                    return "[Run cancelled: empty tool-call list in approval request]"
+
+                tool_approvals: list[ToolApproval] = []
+                for tc in tool_calls:
+                    if not isinstance(tc, RequiredMcpToolCall):
+                        continue
+
+                    fn_name = tc.name
+                    print(f"  -> MCP tool: {fn_name}({tc.arguments})")
+
+                    if fn_name in AUTO_APPROVE_TOOLS:
+                        approved = True
+                        print(f"     Auto-approved")
+                    elif fn_name in HUMAN_APPROVE_TOOLS:
+                        try:
+                            choice = input(f"     Approve '{fn_name}'? [y/N] ").strip().lower()
+                            approved = choice in ("y", "yes")
+                        except (EOFError, KeyboardInterrupt):
+                            approved = False
+                        print(f"     {'APPROVED' if approved else 'REJECTED'} by operator")
+                    else:
+                        print(f"     Unknown tool '{fn_name}' — rejected")
+                        approved = False
+
+                    tool_approvals.append(
+                        ToolApproval(
+                            tool_call_id=tc.id,
+                            approve=approved,
+                            headers=mcp_tool.headers,
+                        )
+                    )
+
+                if tool_approvals:
+                    run = project_client.agents.runs.submit_tool_outputs(
+                        thread_id=thread_id,
+                        run_id=run.id,
+                        tool_approvals=tool_approvals,
+                    )
+                continue
+            else:
+                # Unexpected requires_action type — shouldn't happen in MCP mode
+                return f"[Unexpected action type: {type(run.required_action).__name__}]"
+
+        time.sleep(1)
+        run = project_client.agents.runs.get(thread_id=thread_id, run_id=run.id)
+
+    if run.status == RunStatus.FAILED:
+        return f"[Run failed: {run.last_error}]"
+
+    if run.status != RunStatus.COMPLETED:
+        return f"[Run ended with status: {run.status}]"
+
+    # Get the latest assistant message
+    messages = project_client.agents.messages.list(thread_id=thread_id, order="desc")
+    for msg in messages:
+        if msg.role == MessageRole.AGENT:
+            parts = []
+            for block in msg.content:
+                if hasattr(block, "text"):
+                    parts.append(block.text.value)
+            if parts:
+                return "\n".join(parts)
+    return "[No response]"
+
+
+# ---------------------------------------------------------------------------
+# Agent turn — Legacy mode (poll loop with client-side tool execution)
 # ---------------------------------------------------------------------------
 
 
@@ -317,6 +449,11 @@ def main() -> None:
     parser.add_argument("--resource-group", "-g", default="")
     parser.add_argument("--agent-id", default="")
     parser.add_argument("--single", "-s", default="", help="Send a single message and exit.")
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Force legacy FunctionTool mode (HTTP dispatch) instead of MCP.",
+    )
     args = parser.parse_args()
 
     # Resolve configuration
@@ -324,6 +461,9 @@ def main() -> None:
     project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "")
     _tool_service_url = state.get("tool_service_url", os.environ.get("TOOL_SERVICE_URL", ""))
     agent_id = args.agent_id or state.get("agent_id", os.environ.get("AGENT_ID", ""))
+
+    # Determine tool mode: CLI flag overrides state file
+    tool_mode = "legacy" if args.legacy else state.get("tool_mode", "legacy")
 
     if args.resource_group:
         vals = _resolve_from_bicep(args.resource_group)
@@ -340,9 +480,20 @@ def main() -> None:
         print("ERROR: Set AGENT_ID, use --agent-id, or run create_agent.py first.", file=sys.stderr)
         sys.exit(1)
 
+    # Construct MCPTool for MCP mode (provides .resources and .headers for the run)
+    mcp_tool: MCPTool | None = None
+    if tool_mode == "mcp":
+        mcp_server_url = state.get("mcp_server_url", f"{_tool_service_url}/mcp")
+        mcp_tool = MCPTool(
+            server_label="iq-tools",
+            server_url=mcp_server_url,
+            require_approval="always",
+        )
+
     print(f"Project:  {project_endpoint}")
     print(f"Tools:    {_tool_service_url}")
     print(f"Agent:    {agent_id}")
+    print(f"Mode:     {'MCP (approval flow)' if mcp_tool else 'Legacy (HTTP dispatch)'}")
     print()
 
     # Connect via AIProjectClient (Agent Framework v2 entry point)
@@ -354,9 +505,15 @@ def main() -> None:
     print(f"Thread:   {thread.id}")
     print()
 
+    # Helper: dispatch to the right run function based on mode
+    def _turn(msg: str) -> str:
+        if mcp_tool:
+            return run_agent_turn_mcp(project_client, thread.id, agent_id, msg, mcp_tool)
+        return run_agent_turn(project_client, thread.id, agent_id, msg)
+
     # Single-shot mode (for scripting / CI)
     if args.single:
-        reply = run_agent_turn(project_client, thread.id, agent_id, args.single)
+        reply = _turn(args.single)
         print(reply)
         return
 
@@ -373,7 +530,7 @@ def main() -> None:
             print("Bye!")
             break
 
-        reply = run_agent_turn(project_client, thread.id, agent_id, user_input)
+        reply = _turn(user_input)
         print(f"\nAgent> {reply}")
 
 
