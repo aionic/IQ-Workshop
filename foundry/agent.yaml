@@ -30,11 +30,13 @@ template:
   # Replace TODO values with Bicep outputs after deployment:
   #   az deployment group show -g <rg> -n main --query properties.outputs
   environment_variables:
-    AZURE_SQL_SERVER_FQDN: "TODO: your-sql-server.database.windows.net"
+    AZURE_SQL_SERVER_FQDN: "sql-iq-lab-dev.database.windows.net"
     AZURE_SQL_DATABASE_NAME: "sqldb-iq"
-    AZURE_CLIENT_ID: "TODO: client-id-of-id-iq-tools-managed-identity"
-    APPLICATIONINSIGHTS_CONNECTION_STRING: "TODO: from-bicep-output"
+    AZURE_CLIENT_ID: "83254f15-4947-4671-9a2c-ce6b566af546"
+    APPLICATIONINSIGHTS_CONNECTION_STRING: "InstrumentationKey=48e447dd-cbce-4d84-8375-7e704f28d31e;IngestionEndpoint=https://westus3-1.in.applicationinsights.azure.com/;LiveEndpoint=https://westus3.livediagnostics.monitor.azure.com/;ApplicationId=8d20b7e9-85f6-4db8-b9cf-9f264f22b3fc"
     DB_AUTH_MODE: "token"
+    AZURE_AI_SERVICES_ENDPOINT: "https://ai-iq-lab-dev.cognitiveservices.azure.com/"
+    AZURE_AI_MODEL_DEPLOYMENT: "gpt-5-mini"
 
 # Tool definitions — reference OpenAPI spec
 tools:
