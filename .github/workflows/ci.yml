@@ -31,7 +31,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: uv pip install --system -r requirements.txt
+        run: uv sync --extra dev
 
       - name: Lint (ruff)
         run: uv run ruff check .
@@ -100,8 +100,8 @@ jobs:
         working-directory: .
 
       - name: Run endpoint smoke test
-        shell: pwsh
-        run: ./scripts/smoke-test.ps1 -BaseUrl http://localhost:8000
+        shell: bash
+        run: bash ./scripts/smoke-test.sh -b http://localhost:8000
         working-directory: .
 
       - name: Dump docker logs on failure

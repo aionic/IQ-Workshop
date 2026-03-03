@@ -8,11 +8,17 @@ Responses API compatible **function tools**. The tool service is **self-hosted o
 Container Apps** — a client program intercepts the agent’s `requires_action` events,
 calls the FastAPI endpoints, and submits results back.
 
+The tool service also exposes an **MCP (Model Context Protocol) server** at `/mcp` via
+SSE transport, allowing MCP-compatible clients (VS Code Copilot, Claude Desktop, etc.)
+to discover and invoke tools directly.
+
 **Key architectural decisions**:
 - The agent is a Foundry *Prompt Agent* (LLM-backed), not a hosted/containerized agent
 - Tool calling uses **function tools** (Responses API compatible), not OpenAPI tools
 - The FastAPI tool service runs independently on **Azure Container Apps** (self-hosted)
 - A client-side loop (`chat_agent.py`) bridges the agent and tool service via HTTP
+- MCP Server co-hosted on the same Container App provides an alternative tool discovery path
+- All deployment scripts ship in both PowerShell and Bash for cross-platform support (Windows/macOS/Linux)
 
 ## Components
 
@@ -21,6 +27,7 @@ calls the FastAPI endpoints, and submits results back.
 | Foundry Prompt Agent | Azure AI Foundry + gpt-4.1-mini | LLM orchestration, function tool definitions |
 | AI Services + Project | Microsoft.CognitiveServices/accounts | Hosts model deployment + Foundry project |
 | Tool Service | Python FastAPI on Azure Container Apps | Exposes tool endpoints (query, approve, execute) |
+| MCP Server | FastMCP co-hosted on Tool Service at `/mcp` | SSE-based tool discovery for MCP clients |
 | Database | Azure SQL (deployed) / SQL Server 2022 (local) | Stores tickets, anomalies, devices, remediation log |
 | Observability | Application Insights + OpenTelemetry | Structured logging with correlation_id |
 | Identity | Entra ID + Managed Identity | Token-based auth, no passwords in Azure |
@@ -41,6 +48,7 @@ flowchart LR
     end
     subgraph CAE["Container Apps Environment"]
       CA[Tool Service<br/>FastAPI :8000]
+      MCP[MCP Server<br/>SSE at /mcp]
     end
     SQL[(Azure SQL<br/>sqldb-iq)]
     ACR[Azure Container Registry]

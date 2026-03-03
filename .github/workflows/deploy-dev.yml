@@ -28,6 +28,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: dev
+    # Skip if Azure OIDC secrets are not configured (e.g. freshly forked repos)
+    if: vars.ACR_NAME != '' && vars.RESOURCE_GROUP_NAME != ''
 
     steps:
       - uses: actions/checkout@v4
