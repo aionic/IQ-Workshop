@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "https://TODO-your-container-app.azurecontainerapps.io",
+      "url": "https://ca-tools-iq-lab-dev.jollydune-6d767ca5.westus3.azurecontainerapps.io",
       "description": "Azure Container Apps deployment"
     },
     {
