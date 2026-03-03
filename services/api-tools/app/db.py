@@ -309,16 +309,7 @@ def execute_remediation(
     try:
         cursor = conn.cursor()
 
-        # 1. Validate approval
-        cursor.execute(
-            "SELECT status FROM dbo.iq_remediation_log WHERE remediation_id = ?",
-            (rem_id,),
-        )
-        row = cursor.fetchone()
-        if not row or row[0] != "APPROVED":
-            return None
-
-        # 2. Record execution
+        # 1. Validate approval + ticket binding and record execution atomically
         outcome = f"Executed: {action}"
         cursor.execute(
             """
@@ -332,12 +323,16 @@ def execute_remediation(
                 INSERTED.outcome,
                 INSERTED.correlation_id
             WHERE remediation_id = ?
+              AND ticket_id = ?
+              AND status = 'APPROVED'
             """,
-            (outcome, rem_id),
+            (outcome, rem_id, ticket_id),
         )
         result = cursor.fetchone()
+        if result is None:
+            return None
         # Capture column metadata before the next statement resets cursor.description
-        result_dict = _row_to_dict(cursor, result) if result else None
+        result_dict = _row_to_dict(cursor, result)
 
         # 3. Update ticket status to Investigate
         cursor.execute(
