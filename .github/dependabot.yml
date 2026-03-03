@@ -4,7 +4,16 @@ updates:
     directory: "/services/api-tools"
     schedule:
       interval: "weekly"
+      day: "monday"
     open-pull-requests-limit: 10
+    rebase-strategy: "auto"
+    versioning-strategy: "increase-if-necessary"
+    commit-message:
+      prefix: "deps(python)"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "python"
@@ -13,7 +22,15 @@ updates:
     directory: "/services/api-tools"
     schedule:
       interval: "weekly"
+      day: "monday"
     open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "deps(docker)"
+    groups:
+      docker-dependencies:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "docker"
@@ -22,7 +39,19 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
     open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "deps(actions)"
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     labels:
       - "dependencies"
       - "github-actions"

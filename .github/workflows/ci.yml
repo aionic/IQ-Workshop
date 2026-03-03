@@ -70,7 +70,7 @@ jobs:
         run: npm install -g @stoplight/spectral-cli
 
       - name: Lint OpenAPI spec
-        run: spectral lint foundry/tools.openapi.json --ruleset builtin
+        run: spectral lint foundry/tools.openapi.json -r .spectral.yaml
         working-directory: .
 
   smoke-test:
