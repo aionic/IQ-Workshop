@@ -3,8 +3,18 @@
   "info": {
     "title": "IQ Foundry Agent Lab — Tool Service API",
     "description": "Tool endpoints for the IQ Foundry hosted agent. Provides ticket context queries, approval workflows, remediation execution, and optional Teams posting.",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "contact": {
+      "name": "IQ Foundry Workshop",
+      "url": "https://github.com/aionic/IQ-Workshop"
+    }
   },
+  "tags": [
+    {
+      "name": "tools",
+      "description": "Agent tool endpoints for ticket triage, approval, remediation, and Teams posting"
+    }
+  ],
   "servers": [
     {
       "url": "https://your-container-app-fqdn.azurecontainerapps.io",
@@ -19,6 +29,7 @@
     "/tools/query-ticket-context": {
       "post": {
         "operationId": "queryTicketContext",
+        "tags": ["tools"],
         "summary": "Query ticket context with linked anomaly and device data",
         "description": "Returns minimal structured fields for a given ticket: ticket metadata, anomaly metrics, and device/site info. No full dataset — only scoped fields.",
         "requestBody": {
@@ -58,6 +69,7 @@
     "/tools/request-approval": {
       "post": {
         "operationId": "requestApproval",
+        "tags": ["tools"],
         "summary": "Request approval for a proposed remediation action",
         "description": "Creates a pending approval request. Returns an approval token that must be presented to execute the remediation. The request must be approved via the admin endpoint before execution.",
         "requestBody": {
@@ -87,6 +99,7 @@
     "/tools/execute-remediation": {
       "post": {
         "operationId": "executeRemediation",
+        "tags": ["tools"],
         "summary": "Execute an approved remediation action",
         "description": "Validates the approval token is APPROVED, writes a remediation log entry, and optionally updates the ticket status. Requires a valid, approved approval_token.",
         "requestBody": {
@@ -126,6 +139,7 @@
     "/tools/post-teams-summary": {
       "post": {
         "operationId": "postTeamsSummary",
+        "tags": ["tools"],
         "summary": "Post a remediation summary to Microsoft Teams",
         "description": "Posts a triage/remediation summary to a Teams channel via webhook. If no webhook is configured, the payload is logged and teams_posted returns false. Always logs the payload for audit.",
         "requestBody": {
