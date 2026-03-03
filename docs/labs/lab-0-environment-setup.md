@@ -181,7 +181,7 @@ curl http://localhost:8000/health
 
 ```bash
 cd services/api-tools
-uv venv && uv pip install -r requirements.txt
+uv sync --extra dev
 uv run pytest -v
 ```
 

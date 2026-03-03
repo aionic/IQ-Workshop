@@ -95,5 +95,5 @@ When making changes, update ALL related files:
 2. `docker compose up` — starts SQL Server + FastAPI
 3. SQL auto-seeded via `data/local-init.sh`
 4. Tool service at `http://localhost:8000`, health check at `GET /health`
-5. Install deps: `cd services/api-tools && uv pip install -r requirements.txt`
+5. Install deps: `cd services/api-tools && uv sync --extra dev`
 6. Tests: `cd services/api-tools && uv run pytest`

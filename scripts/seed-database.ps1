@@ -121,16 +121,37 @@ if ($GrantPermissions) {
     $grantFile = Join-Path $DataDir "grant-permissions.sql"
     if (Test-Path $grantFile) {
         Write-Step "Granting managed identity permissions"
+
+        # Resolve MI names from Bicep deployment outputs (not hardcoded)
+        $outputsRaw = az deployment group show `
+            --resource-group $ResourceGroup `
+            --name main `
+            --query "properties.outputs" `
+            --output json 2>$null
+        if ($outputsRaw) {
+            $bOutputs = $outputsRaw | ConvertFrom-Json
+            $miToolsName = $bOutputs.miToolsName.value
+            $miAgentName = $bOutputs.miAgentName.value
+        }
+        else {
+            # Fallback: derive from resource group naming convention {type}-iq-lab-{env}
+            $envSuffix = ($ResourceGroup -replace '^rg-iq-lab-', '')
+            $miToolsName = "id-iq-tools-iq-lab-$envSuffix"
+            $miAgentName = "id-iq-agent-iq-lab-$envSuffix"
+            Write-Warn "No Bicep outputs found — using derived names: $miToolsName, $miAgentName"
+        }
+        Write-Ok "MI Tools: $miToolsName  |  MI Agent: $miAgentName"
+
         # Run each statement individually since CREATE USER FROM EXTERNAL PROVIDER
         # may fail if user already exists — we handle that gracefully
         $statements = @(
-            "IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'id-iq-tools-iq-lab-dev') CREATE USER [id-iq-tools-iq-lab-dev] FROM EXTERNAL PROVIDER;",
-            "ALTER ROLE db_datareader ADD MEMBER [id-iq-tools-iq-lab-dev];",
-            "GRANT INSERT ON dbo.iq_remediation_log TO [id-iq-tools-iq-lab-dev];",
-            "GRANT UPDATE ON dbo.iq_remediation_log TO [id-iq-tools-iq-lab-dev];",
-            "GRANT UPDATE ON dbo.iq_tickets TO [id-iq-tools-iq-lab-dev];",
-            "IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'id-iq-agent-iq-lab-dev') CREATE USER [id-iq-agent-iq-lab-dev] FROM EXTERNAL PROVIDER;",
-            "ALTER ROLE db_datareader ADD MEMBER [id-iq-agent-iq-lab-dev];"
+            "IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = '$miToolsName') CREATE USER [$miToolsName] FROM EXTERNAL PROVIDER;",
+            "ALTER ROLE db_datareader ADD MEMBER [$miToolsName];",
+            "GRANT INSERT ON dbo.iq_remediation_log TO [$miToolsName];",
+            "GRANT UPDATE ON dbo.iq_remediation_log TO [$miToolsName];",
+            "GRANT UPDATE ON dbo.iq_tickets TO [$miToolsName];",
+            "IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = '$miAgentName') CREATE USER [$miAgentName] FROM EXTERNAL PROVIDER;",
+            "ALTER ROLE db_datareader ADD MEMBER [$miAgentName];"
         )
         foreach ($stmt in $statements) {
             try {

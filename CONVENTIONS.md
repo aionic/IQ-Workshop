@@ -4,7 +4,7 @@
 
 | Component | Technology | Version |
 |---|---|---|
-| Tool Service | Python + FastAPI | 3.11+ / 0.110+ |
+| Tool Service | Python + FastAPI | 3.12+ / 0.110+ |
 | Models | Pydantic v2 | 2.0+ |
 | Database | Azure SQL (deployed) / SQL Server Developer (local) | 2022 |
 | Infrastructure | Bicep | latest |
@@ -92,10 +92,11 @@ grep -rn "TODO(phase-3)" .   # Find all Phase 3 remaining tasks
 ## Package Management
 
 - **`uv` is the ONLY Python package manager.** Never use `pip`, `pip install`, `pip freeze`, or `pip-compile`.
-- Install dependencies: `uv pip install -r requirements.txt`
+- Install dependencies: `uv sync` (uses `pyproject.toml`) or `uv pip install -r requirements.txt` (in Docker)
 - Run tools: `uv run pytest`, `uv run ruff check .`
-- In Dockerfiles: `COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv` then `uv pip install`
-- In CI: install uv first, then use `uv pip install` and `uv run`
+- Run scripts with inline deps (PEP 723): `uv run scripts/create_agent.py`
+- In Dockerfiles: `COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv` then `uv pip install --system`
+- In CI: install uv first, then use `uv sync` and `uv run`
 
 ## Testing
 

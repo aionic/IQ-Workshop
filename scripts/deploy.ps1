@@ -19,7 +19,7 @@
     Path to Bicep parameters file (default: ../infra/bicep/parameters.dev.json).
 
 .PARAMETER ImageTag
-    Docker image tag for the tool service (default: v4).
+    Docker image tag for the tool service (default: timestamp-based, e.g. v20260303-1430).
 
 .PARAMETER SkipBicep
     Skip Bicep infrastructure deployment (useful when only rebuilding the image).
@@ -48,7 +48,7 @@ param(
     [string]$ResourceGroup = "rg-iq-lab-dev",
     [string]$Location = "westus3",
     [string]$ParameterFile = "$PSScriptRoot\..\infra\bicep\parameters.dev.json",
-    [string]$ImageTag = "v4",
+    [string]$ImageTag = "v$(Get-Date -Format 'yyyyMMdd-HHmm')",
     [switch]$SkipBicep,
     [switch]$SkipImage,
     [switch]$SeedDatabase
@@ -152,7 +152,15 @@ if (-not $SkipImage) {
     Write-Ok "Image built: $imageFull"
 
     Write-Step "Updating Container App with new image"
-    $caName = "ca-tools-iq-lab-$(($ParameterFile | Get-Content | ConvertFrom-Json).parameters.environmentName.value)"
+    # Derive Container App name from Bicep deployment outputs
+    $caName = if ($outputs) {
+        # toolServiceUrl is like https://ca-tools-iq-lab-dev.<hash>.<region>.azurecontainerapps.io
+        $fqdn = ($outputs.toolServiceUrl.value -replace '^https://', '')
+        ($fqdn -split '\.')[0]
+    }
+    else {
+        (az containerapp list -g $ResourceGroup --query "[0].name" -o tsv)
+    }
     az containerapp update `
         --name $caName `
         --resource-group $ResourceGroup `
