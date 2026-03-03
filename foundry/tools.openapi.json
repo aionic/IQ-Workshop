@@ -7,7 +7,7 @@
   },
   "servers": [
     {
-      "url": "https://ca-tools-iq-lab-dev.salmonpebble-8b8aec45.westus3.azurecontainerapps.io",
+      "url": "https://your-container-app-fqdn.azurecontainerapps.io",
       "description": "Azure Container Apps deployment"
     },
     {

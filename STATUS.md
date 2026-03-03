@@ -1,7 +1,7 @@
 # IQ Foundry Agent Lab — Session Status & Handoff
 
 > **Last updated:** 2026-03-03 (Agent Framework v2 SDK + gpt-4.1-mini + evals)
-> **Author:** Anthony Nevico + Copilot
+> **Author:** Project Maintainer + Copilot
 
 ---
 
@@ -9,13 +9,13 @@
 
 ```bash
 # 1. Set the right subscription
-az account set --subscription 99d726d6-ee81-44f8-959f-4c4d59fddd82
+az account set --subscription <your-subscription-id>
 
 # 2. Verify the tool service is running
-curl https://ca-tools-iq-lab-dev.jollydune-6d767ca5.westus3.azurecontainerapps.io/health
+curl https://<your-container-app-fqdn>/health
 
 # 3. Check container app status
-az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties.runningStatus" -o tsv
+az containerapp show -n <your-container-app-name> -g <your-resource-group> --query "properties.runningStatus" -o tsv
 ```
 
 ---
@@ -41,39 +41,39 @@ az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties
 
 | Resource | Value |
 |----------|-------|
-| **Subscription** | `ME-MngEnvMCAP669594-anevico-1` |
-| **Subscription ID** | `99d726d6-ee81-44f8-959f-4c4d59fddd82` |
-| **Resource Group** | `rg-iq-lab-dev` |
-| **Region** | `westus3` |
-| **Entra Admin OID** | `98e79176-ff79-441d-ae4e-2bfc5ccf1a06` |
+| **Subscription** | `<your-subscription-name>` |
+| **Subscription ID** | `<your-subscription-id>` |
+| **Resource Group** | `<your-resource-group>` |
+| **Region** | `<your-region>` |
+| **Entra Admin OID** | `<your-entra-admin-object-id>` |
 
 ### Deployed Resources
 
 | Resource | Name / FQDN |
 |----------|-------------|
-| **Container App** | `ca-tools-iq-lab-dev` |
-| **Tool Service URL** | `https://ca-tools-iq-lab-dev.jollydune-6d767ca5.westus3.azurecontainerapps.io` |
-| **CA Environment** | `cae-iq-lab-dev` |
-| **Current Image** | `acriqlabdev.azurecr.io/iq-tools:v4` |
-| **Active Revision** | `ca-tools-iq-lab-dev--0000004` |
-| **ACR** | `acriqlabdev.azurecr.io` |
-| **SQL Server** | `sql-iq-lab-dev.database.windows.net` |
+| **Container App** | `<your-container-app-name>` |
+| **Tool Service URL** | `https://<your-container-app-fqdn>` |
+| **CA Environment** | `<your-container-app-environment>` |
+| **Current Image** | `<your-acr-login-server>/iq-tools:<tag>` |
+| **Active Revision** | `<active-revision-name>` |
+| **ACR** | `<your-acr-login-server>` |
+| **SQL Server** | `<your-sql-server>.database.windows.net` |
 | **SQL Database** | `sqldb-iq` |
-| **AI Services** | `ai-iq-lab-dev` (`https://ai-iq-lab-dev.cognitiveservices.azure.com/`) |
-| **Foundry Project** | `iq-lab-project` (standalone project under AI Services) |
-| **Project Endpoint** | `https://ai-iq-lab-dev.services.ai.azure.com/api/projects/iq-lab-project` |
+| **AI Services** | `<your-ai-services-name>` (`https://<your-ai-services-name>.cognitiveservices.azure.com/`) |
+| **Foundry Project** | `<your-foundry-project-name>` (standalone project under AI Services) |
+| **Project Endpoint** | `https://<your-ai-services-name>.services.ai.azure.com/api/projects/<your-foundry-project-name>` |
 | **Model Deployment** | `gpt-4.1-mini` (GlobalStandard, 30K TPM, version 2025-04-14) |
-| **App Insights** | `InstrumentationKey=48e447dd-cbce-4d84-8375-7e704f28d31e` |
+| **App Insights** | `<redacted>` |
 
 ### Managed Identities
 
 | Identity | Client ID | Principal ID |
 |----------|-----------|--------------|
-| **id-iq-tools-iq-lab-dev** (Tool Service) | `83254f15-4947-4671-9a2c-ce6b566af546` | `2f46d82c-54c4-4a0f-a661-809e3fa6ecdb` |
-| **id-iq-agent-iq-lab-dev** (Agent) | `c76f40f0-fa0d-4f32-938b-7bd50f5f4808` | `61640bea-4acf-4bd8-bf27-a5ccd1986de2` |
+| **id-iq-tools-iq-lab-dev** (Tool Service) | `<redacted-client-id>` | `<redacted-principal-id>` |
+| **id-iq-agent-iq-lab-dev** (Agent) | `<redacted-client-id>` | `<redacted-principal-id>` |
 
 Both MIs have `db_datareader` + `db_datawriter` roles on `sqldb-iq`.
-Both MIs have `Cognitive Services OpenAI User` role on `ai-iq-lab-dev`.
+Both MIs have `Cognitive Services OpenAI User` role on `<your-ai-services-name>`.
 
 ### Database Contents
 
@@ -119,7 +119,7 @@ Both MIs have `Cognitive Services OpenAI User` role on `ai-iq-lab-dev`.
 
 | File | Change |
 |------|--------|
-| `infra/bicep/parameters.dev.json` | Real Entra admin values, `location` → `westus3` |
+| `infra/bicep/parameters.dev.json` | Entra admin values and target region updated for deployment |
 | `infra/bicep/main.bicep` | `principalType: 'Group'` → `'User'` |
 | `services/api-tools/Dockerfile` | Removed `--auto-remove` from apt-get purge |
 | `services/api-tools/app/db.py` | Fixed cursor.description bug in `execute_remediation()` |
@@ -133,7 +133,7 @@ All deployment is automated via PowerShell scripts in `scripts/`. See [scripts/R
 ```powershell
 # Full deployment from scratch (~15 min)
 az login
-az account set --subscription 99d726d6-ee81-44f8-959f-4c4d59fddd82
+az account set --subscription <your-subscription-id>
 .\scripts\deploy.ps1 -SeedDatabase
 .\scripts\seed-database.ps1 -GrantPermissions
 .\scripts\register-agent.ps1
@@ -151,10 +151,10 @@ az account set --subscription 99d726d6-ee81-44f8-959f-4c4d59fddd82
 
 ```bash
 # Run the full eval suite
-uv run evals/run_evals.py --resource-group rg-iq-lab-dev
+uv run evals/run_evals.py --resource-group <your-resource-group>
 
 # Run a single case with verbose output
-uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
+uv run evals/run_evals.py -g <your-resource-group> --case triage-basic-001 -v
 ```
 
 | File | Purpose |
@@ -174,17 +174,17 @@ uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
 .\scripts\deploy.ps1 -SkipBicep -ImageTag v5
 
 # Or manually:
-az acr build --registry acriqlabdev --image iq-tools:v5 --platform linux/amd64 .
-az containerapp update -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --image acriqlabdev.azurecr.io/iq-tools:v5
+az acr build --registry <your-acr-name> --image iq-tools:v5 --platform linux/amd64 .
+az containerapp update -n <your-container-app-name> -g <your-resource-group> --image <your-acr-login-server>/iq-tools:v5
 
 # Tail logs
-az containerapp logs show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --follow
+az containerapp logs show -n <your-container-app-name> -g <your-resource-group> --follow
 ```
 
 ### Database Access (PowerShell — Entra token auth)
 ```powershell
 $token = (az account get-access-token --resource https://database.windows.net --query accessToken -o tsv)
-Invoke-Sqlcmd -ServerInstance "sql-iq-lab-dev.database.windows.net" `
+Invoke-Sqlcmd -ServerInstance "<your-sql-server>.database.windows.net" `
   -Database "sqldb-iq" -AccessToken $token `
   -Query "SELECT COUNT(*) AS n FROM iq_devices"
 ```
@@ -192,7 +192,7 @@ Invoke-Sqlcmd -ServerInstance "sql-iq-lab-dev.database.windows.net" `
 ### Full Bicep Redeploy
 ```bash
 az deployment group create \
-  --resource-group rg-iq-lab-dev \
+  --resource-group <your-resource-group> \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/parameters.dev.json
 ```
@@ -203,7 +203,7 @@ az deployment group create \
 
 | Priority | Task | Notes |
 |----------|------|-------|
-| 🔴 High | **Create prompt agent in Foundry** | Run `uv run scripts/create_agent.py -g rg-iq-lab-dev` or `register-agent.ps1` |
+| 🔴 High | **Create prompt agent in Foundry** | Run `uv run scripts/create_agent.py -g <your-resource-group>` or `register-agent.ps1` |
 | 🔴 High | **Test agent E2E** | Invoke via AI Foundry playground at https://ai.azure.com |
 | 🟡 Medium | **Private networking** | Set `networkMode=private` in params, redeploy — tests VNet integration |
 | 🟡 Medium | **CI/CD pipeline** | `.github/workflows/` exist — configure secrets and enable |
