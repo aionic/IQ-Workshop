@@ -119,6 +119,8 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = if (isPrivate) {
 // --- Private DNS Zones (private mode only) ---
 
 resource dnsZoneSql 'Microsoft.Network/privateDnsZones@2020-06-01' = if (isPrivate) {
+  // Disable this warning for SQL private DNS zone name; this exact zone name is required by Azure Private Link.
+  #disable-next-line no-hardcoded-env-urls
   name: 'privatelink.database.windows.net'
   location: 'global'
 }
@@ -222,7 +224,7 @@ resource peSql 'Microsoft.Network/privateEndpoints@2023-11-01' = if (isPrivate) 
   location: location
   properties: {
     subnet: {
-      id: vnet.properties.subnets[1].id // snet-private-endpoints
+      id: vnet!.properties.subnets[1].id // snet-private-endpoints
     }
     privateLinkServiceConnections: [
       {
@@ -289,7 +291,7 @@ resource peAcr 'Microsoft.Network/privateEndpoints@2023-11-01' = if (isPrivate) 
   location: location
   properties: {
     subnet: {
-      id: vnet.properties.subnets[1].id
+      id: vnet!.properties.subnets[1].id
     }
     privateLinkServiceConnections: [
       {
@@ -380,7 +382,7 @@ resource peAmpls 'Microsoft.Network/privateEndpoints@2023-11-01' = if (isPrivate
   location: location
   properties: {
     subnet: {
-      id: vnet.properties.subnets[1].id
+      id: vnet!.properties.subnets[1].id
     }
     privateLinkServiceConnections: [
       {
@@ -426,7 +428,7 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = 
   properties: {
     customSubDomainName: aiServicesName
     publicNetworkAccess: isPrivate ? 'Disabled' : 'Enabled'
-    disableLocalAuth: false
+    disableLocalAuth: true
     allowProjectManagement: true
   }
 }
@@ -506,7 +508,7 @@ resource caEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
     }
     vnetConfiguration: isPrivate
       ? {
-          infrastructureSubnetId: vnet.properties.subnets[0].id // snet-container-apps
+          infrastructureSubnetId: vnet!.properties.subnets[0].id // snet-container-apps
           internal: true
         }
       : null

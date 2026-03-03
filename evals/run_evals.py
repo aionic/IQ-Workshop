@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -115,6 +116,7 @@ def run_agent_turn(
         {"function_name": str, "arguments": dict, "output": str}
     """
     tool_call_log: list[dict] = []
+    turn_correlation_id = str(uuid.uuid4())
 
     # Post user message
     project_client.agents.messages.create(
@@ -133,6 +135,11 @@ def run_agent_turn(
             for tc in tool_calls:
                 fn_name = tc.function.name
                 fn_args = json.loads(tc.function.arguments)
+
+                if fn_name in {"request_approval", "execute_remediation", "post_teams_summary"}:
+                    if not fn_args.get("correlation_id"):
+                        fn_args["correlation_id"] = turn_correlation_id
+
                 if verbose:
                     print(f"    -> {fn_name}({json.dumps(fn_args, separators=(',', ':'))})")
 
