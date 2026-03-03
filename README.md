@@ -1,15 +1,16 @@
 # IQ Foundry Agent Lab
 
-A Microsoft Foundry / Azure AI Foundry hosted agent workshop demonstrating production-shaped
-patterns for AI-assisted network operations triage.
+A Microsoft Foundry / Azure AI Foundry agent workshop demonstrating production-shaped
+patterns for AI-assisted network operations triage. The tool service is **self-hosted
+on Azure Container Apps** — Foundry provides the LLM, your code controls everything else.
 
 ## What This Is
 
-A **Foundry-hosted agent** that:
-1. Reads structured IQ data (tickets, anomalies, devices) via allowlisted tool calls
+A **Foundry prompt agent** backed by gpt-5-mini that:
+1. Reads structured IQ data (tickets, anomalies, devices) via function tool calls
 2. Produces terse triage summaries grounded in specific fields
 3. Proposes safe remediation actions requiring human approval
-4. Executes approved actions via a governed tool service
+4. Executes approved actions via a governed, self-hosted tool service on ACA
 5. Logs every decision with `correlation_id` for full traceability
 6. Optionally posts summaries to Microsoft Teams
 
@@ -17,20 +18,20 @@ A **Foundry-hosted agent** that:
 
 ```mermaid
 flowchart LR
-  U[User in Foundry Playground] --> A[Foundry Hosted Agent]
-  A -->|tool call: query| Q[Query Tool API - read-only]
+  U[User / chat_agent.py] --> A[Foundry Prompt Agent\ngpt-5-mini]
+  A -->|requires_action| U
+  U -->|HTTP call| Q[Tool Service on ACA\nFastAPI :8000]
   Q --> D[(Azure SQL: iq_* tables)]
-  A -->|tool call: request approval| P[Approval Tool API]
-  P -->|approved| X[Execute Tool API]
-  X --> L[(Azure SQL: iq_remediation_log)]
-  X --> O[App Insights - correlation_id]
-  X --> T[Optional Teams Post]
+  Q --> O[App Insights — correlation_id]
+  U -->|submit_tool_outputs| A
+  A --> R[Agent response]
 ```
 
 | Component | Technology |
 |---|---|
-| Agent | Azure AI Foundry Agent Service (hosted) |
-| Tool Service | Python FastAPI on Azure Container Apps |
+| Agent | Azure AI Foundry Prompt Agent (gpt-5-mini, Responses API) |
+| Tool Service | Python FastAPI on Azure Container Apps (self-hosted) |
+| Client Loop | `chat_agent.py` — intercepts requires_action, calls tool service |
 | Database | Azure SQL (deployed) / SQL Server 2022 Developer (local) |
 | Observability | Application Insights + OpenTelemetry |
 | Identity | Entra ID + Managed Identity (token auth, no passwords in Azure) |
@@ -123,7 +124,8 @@ This project is licensed under the [MIT License](LICENSE).
 │   └── labs/                   # Lab 0–4 step-by-step guides
 ├── foundry/                    # Agent definition, OpenAPI spec, system prompt
 ├── infra/bicep/                # Bicep templates (dual-mode networking)
-├── services/api-tools/         # FastAPI tool service (Python)
+├── scripts/                    # Deployment, agent registration, chat runner, smoke test
+├── services/api-tools/         # FastAPI tool service (Python, self-hosted on ACA)
 ├── data/                       # SQL schema, seed data, permission grants
 ├── samples/                    # Playground prompts, sample outputs
 ├── phases/                     # Build phase checklists
