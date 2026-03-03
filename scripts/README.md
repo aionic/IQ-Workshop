@@ -12,6 +12,7 @@
 |------|---------|---------|
 | **Azure CLI** | 2.60+ | [Install](https://aka.ms/installazurecli) |
 | **PowerShell** | 7.0+ | [Install](https://aka.ms/powershell) |
+| **uv** | latest | [Install](https://docs.astral.sh/uv/getting-started/installation/) |
 | **Git** | any | [Install](https://git-scm.com) |
 | **SqlServer module** (PS) | auto-installed | `Install-Module SqlServer -Scope CurrentUser` |
 
@@ -22,7 +23,7 @@
 
 ---
 
-## Quick Start (5 commands)
+## Quick Start
 
 ```powershell
 # 1. Clone and navigate
@@ -151,15 +152,10 @@ This script outputs the exact configuration to paste into the AI Foundry portal:
 6. Add OpenAPI tool using `foundry/tools.openapi.json` (update server URL to your Container App)
 7. Test in the playground
 
-**Option B — Python SDK (automated):**
+**Option B — Python SDK (automated via `uv run`):**
 ```powershell
-# Set your project endpoint
-$env:AZURE_AI_PROJECT_ENDPOINT = "https://your-project.services.ai.azure.com"
-
-# Run the generated helper script
-cd IQ-Workshop
-uv pip install azure-ai-projects azure-identity
-uv run python scripts/create_agent.py
+# uv auto-installs deps via PEP 723 inline metadata — no manual install needed
+uv run scripts/create_agent.py --resource-group rg-iq-lab-dev
 ```
 
 ---
@@ -170,9 +166,9 @@ uv run python scripts/create_agent.py
 |--------|---------|-----------|
 | `deploy.ps1` | Full infrastructure + image deployment | `-SeedDatabase`, `-SkipBicep`, `-SkipImage`, `-ImageTag` |
 | `seed-database.ps1` | Schema + seed data to Azure SQL | `-GrantPermissions`, `-ServerName`, `-DatabaseName` |
-| `register-agent.ps1` | Foundry agent registration helper | `-AgentName`, `-ModelDeployment`, `-ProjectName` |
-| `smoke-test.ps1` | E2E endpoint verification | `-BaseUrl` (defaults to live Container App) |
-| `create_agent.py` | Python SDK agent creation | Set `AZURE_AI_PROJECT_ENDPOINT` env var |
+| `register-agent.ps1` | Foundry agent registration + SDK creation | `-AgentName`, `-ManualOnly` |
+| `smoke-test.ps1` | E2E endpoint verification | `-BaseUrl` (auto-detected from Bicep outputs) |
+| `create_agent.py` | Python SDK agent creation (PEP 723 deps) | `--resource-group` or env vars |
 
 ---
 
@@ -190,7 +186,7 @@ docker compose up
 
 # Run unit tests
 cd services/api-tools
-uv pip install -r requirements.txt
+uv sync --extra dev
 uv run pytest
 ```
 
@@ -199,17 +195,17 @@ uv run pytest
 ## Troubleshooting
 
 ### "db: unavailable" in health check
-- **SQL public access disabled:** `az sql server update -n sql-iq-lab-dev -g rg-iq-lab-dev --set publicNetworkAccess=Enabled`
+- **SQL public access disabled:** `az sql server update -n <sql-name> -g <rg> --set publicNetworkAccess=Enabled`
 - **MI not granted access:** Run `.\scripts\seed-database.ps1 -GrantPermissions`
 - **Database not seeded:** Run `.\scripts\seed-database.ps1`
 
 ### Container App not starting
 ```powershell
-# Check logs
-az containerapp logs show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --tail 50 --type console
+# Check logs (replace names or look up from Bicep outputs)
+az containerapp logs show -n <ca-name> -g <rg> --tail 50 --type console
 
 # Check revision status
-az containerapp revision list -n ca-tools-iq-lab-dev -g rg-iq-lab-dev -o table
+az containerapp revision list -n <ca-name> -g <rg> -o table
 ```
 
 ### "QuotaExceeded" on AI Services
@@ -261,7 +257,7 @@ az containerapp revision list -n ca-tools-iq-lab-dev -g rg-iq-lab-dev -o table
 
 ## Conventions
 
-- **uv only** — never pip (in scripts, Dockerfiles, CI, docs)
+- **uv only** — never pip (in scripts, Dockerfiles, CI, docs). `create_agent.py` uses PEP 723 inline deps so `uv run` auto-installs them.
 - **Bicep naming:** `{type}-iq-lab-{env}` (e.g., `ca-tools-iq-lab-dev`)
 - **Managed identity** for all Azure auth — no passwords
 - **Parameterized SQL** only — no string concatenation

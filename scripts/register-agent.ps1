@@ -4,40 +4,42 @@
     Register the IQ triage agent in Azure AI Foundry Agent Service.
 
 .DESCRIPTION
-    Creates (or updates) the Foundry hosted agent using the Azure CLI and the
-    agent definition in foundry/agent.yaml. Sets the tool service URL from the
-    live Container App deployment.
+    Resolves all values from the Bicep deployment outputs, patches the OpenAPI
+    spec with the live tool service URL, and creates the Foundry prompt agent
+    via the Python SDK (scripts/create_agent.py) using uv run.
+
+    If uv is not installed, falls back to displaying manual registration
+    instructions for the AI Foundry portal.
 
     Prerequisites:
       - Azure CLI logged in with access to the AI Foundry project
-      - AI Services resource deployed (ai-iq-lab-dev)
       - Container App running with healthy /health endpoint
+      - uv installed (https://docs.astral.sh/uv/getting-started/installation/)
 
 .PARAMETER ResourceGroup
     Resource group (default: rg-iq-lab-dev).
 
-.PARAMETER ProjectName
-    AI Foundry project name. If not provided, you'll be prompted.
-
 .PARAMETER AgentName
     Name for the agent (default: iq-triage-agent).
 
-.PARAMETER ModelDeployment
-    Model deployment name (default: gpt-5-mini).
+.PARAMETER ManualOnly
+    Skip SDK agent creation; only show portal instructions and patched spec.
 
 .EXAMPLE
     .\register-agent.ps1
 
 .EXAMPLE
-    .\register-agent.ps1 -ProjectName my-foundry-project -AgentName iq-triage-agent
+    .\register-agent.ps1 -ManualOnly
+
+.EXAMPLE
+    .\register-agent.ps1 -ResourceGroup rg-iq-lab-staging
 #>
 
 [CmdletBinding()]
 param(
     [string]$ResourceGroup = "rg-iq-lab-dev",
-    [string]$ProjectName,
     [string]$AgentName = "iq-triage-agent",
-    [string]$ModelDeployment = "gpt-5-mini"
+    [switch]$ManualOnly
 )
 
 Set-StrictMode -Version Latest
@@ -50,17 +52,34 @@ function Write-Ok([string]$msg) { Write-Host "  OK: $msg" -ForegroundColor Green
 function Write-Warn([string]$msg) { Write-Host "  WARN: $msg" -ForegroundColor Yellow }
 
 # -----------------------------------------------------------------------
-# Pre-flight: Resolve live values
+# Resolve deployment outputs from Bicep
 # -----------------------------------------------------------------------
-Write-Step "Resolving deployment values"
+Write-Step "Resolving deployment outputs from $ResourceGroup"
 
-# Tool service URL
-$toolServiceUrl = az containerapp show `
-    -n ca-tools-iq-lab-dev -g $ResourceGroup `
-    --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
-if (-not $toolServiceUrl) { throw "Container App not found. Deploy infrastructure first." }
-$toolServiceUrl = "https://$toolServiceUrl"
-Write-Ok "Tool Service: $toolServiceUrl"
+$outputsRaw = az deployment group show `
+    --resource-group $ResourceGroup `
+    --name main `
+    --query "properties.outputs" `
+    --output json 2>$null
+
+if (-not $outputsRaw) {
+    throw "No Bicep deployment named 'main' found in $ResourceGroup. Run deploy.ps1 first."
+}
+
+$outputs = $outputsRaw | ConvertFrom-Json
+
+$toolServiceUrl     = $outputs.toolServiceUrl.value
+$aiServicesName     = $outputs.aiServicesName.value
+$aiServicesEndpoint = $outputs.aiServicesEndpoint.value
+$projectEndpoint    = $outputs.foundryProjectEndpoint.value
+$projectName        = $outputs.foundryProjectName.value
+$modelDeployment    = $outputs.aiModelDeploymentName.value
+
+Write-Ok "Tool Service:     $toolServiceUrl"
+Write-Ok "AI Services:      $aiServicesName"
+Write-Ok "Foundry Project:  $projectName"
+Write-Ok "Project Endpoint: $projectEndpoint"
+Write-Ok "Model:            $modelDeployment"
 
 # Health check
 try {
@@ -76,12 +95,7 @@ catch {
     throw "Tool service at $toolServiceUrl is not responding: $_"
 }
 
-# AI Services endpoint
-$aiEndpoint = az cognitiveservices account show `
-    -n ai-iq-lab-dev -g $ResourceGroup `
-    --query "properties.endpoint" -o tsv 2>$null
-if (-not $aiEndpoint) { throw "AI Services resource 'ai-iq-lab-dev' not found." }
-Write-Ok "AI Services: $aiEndpoint"
+# (AI Services endpoint already resolved from Bicep outputs above)
 
 # -----------------------------------------------------------------------
 # Load system prompt
@@ -102,154 +116,73 @@ $openApiSpec | ConvertTo-Json -Depth 20 | Set-Content $patchedSpecPath -Encoding
 Write-Ok "OpenAPI spec patched with live URL: $toolServiceUrl"
 
 # -----------------------------------------------------------------------
-# Resolve Foundry project
+# Create agent via SDK (unless -ManualOnly)
 # -----------------------------------------------------------------------
-Write-Step "Resolving AI Foundry project"
+if (-not $ManualOnly) {
+    Write-Step "Creating agent via Foundry Agent SDK (uv run)"
 
-if (-not $ProjectName) {
-    Write-Host ""
-    Write-Host "  No AI Foundry project specified." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  To create the agent, you need an AI Foundry project." -ForegroundColor Yellow
-    Write-Host "  You can create one at: https://ai.azure.com" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  === Manual Agent Registration (Recommended for Workshop) ===" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Since the Foundry Agent Service uses the AI Foundry portal for" -ForegroundColor White
-    Write-Host "  agent creation, follow these steps:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  1. Go to https://ai.azure.com" -ForegroundColor White
-    Write-Host "  2. Create or select a project in the westus3 region" -ForegroundColor White
-    Write-Host "  3. Navigate to 'Agents' in the left menu" -ForegroundColor White
-    Write-Host "  4. Click '+ New Agent'" -ForegroundColor White
-    Write-Host "  5. Configure the agent with these values:" -ForegroundColor White
-    Write-Host ""
+    $uvPath = Get-Command uv -ErrorAction SilentlyContinue
+    if (-not $uvPath) {
+        Write-Warn "uv not found — install from https://docs.astral.sh/uv/getting-started/installation/"
+        Write-Warn "Falling back to manual instructions below."
+        $ManualOnly = $true
+    }
+    else {
+        $createScript = Join-Path $RepoRoot "scripts\create_agent.py"
+        Write-Host "  Running: uv run $createScript --resource-group $ResourceGroup"
+        uv run $createScript --resource-group $ResourceGroup
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "Agent created successfully"
+        }
+        else {
+            Write-Warn "Agent creation failed (exit code $LASTEXITCODE)"
+            Write-Warn "Displaying manual instructions instead."
+            $ManualOnly = $true
+        }
+    }
 }
 
 # -----------------------------------------------------------------------
-# Output agent configuration for portal registration
+# Manual registration instructions (shown when -ManualOnly or SDK fails)
 # -----------------------------------------------------------------------
-Write-Step "Agent Configuration Summary"
+if ($ManualOnly) {
+    Write-Step "Manual Agent Registration (AI Foundry Portal)"
 
-$config = @"
+    Write-Host @"
 
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                    FOUNDRY AGENT CONFIGURATION                   │
-  ├──────────────────────────────────────────────────────────────────┤
-  │                                                                  │
-  │  Agent Name:        $AgentName
-  │  Model Deployment:  $ModelDeployment
-  │  AI Services:       $aiEndpoint
-  │  Tool Service URL:  $toolServiceUrl
-  │                                                                  │
-  │  ── System Prompt ──                                             │
-  │  File: foundry/prompts/system.md                                 │
-  │  (Copy the full contents into the agent's Instructions field)    │
-  │                                                                  │
-  │  ── OpenAPI Tool ──                                              │
-  │  File: foundry/tools.openapi.json                                │
-  │  (Upload as an OpenAPI tool definition)                          │
-  │  Server URL has been patched to: $toolServiceUrl
-  │  Patched spec saved to: $patchedSpecPath
-  │                                                                  │
-  └──────────────────────────────────────────────────────────────────┘
+  +------------------------------------------------------------------+
+  |                    FOUNDRY AGENT CONFIGURATION                   |
+  +------------------------------------------------------------------+
+  |                                                                  |
+  |  Agent Name:        $AgentName
+  |  Model Deployment:  $modelDeployment
+  |  AI Services:       $aiServicesEndpoint
+  |  Project Endpoint:  $projectEndpoint
+  |  Tool Service URL:  $toolServiceUrl
+  |                                                                  |
+  |  -- System Prompt --                                             |
+  |  File: foundry/prompts/system.md                                 |
+  |  (Copy the full contents into the agent's Instructions field)    |
+  |                                                                  |
+  |  -- OpenAPI Tool --                                              |
+  |  Patched spec: $patchedSpecPath
+  |  (Upload as an OpenAPI tool definition)                          |
+  |                                                                  |
+  +------------------------------------------------------------------+
 
-"@
-Write-Host $config -ForegroundColor White
+  Steps:
+    1. Go to https://ai.azure.com
+    2. Open project: $projectName
+    3. Navigate to 'Agents' in the left menu
+    4. Click '+ New Agent'
+    5. Select model: $modelDeployment
+    6. Paste the system prompt from foundry/prompts/system.md
+    7. Add an OpenAPI tool using the patched spec above
+    8. Test with: "Summarize ticket TKT-0042"
 
-# -----------------------------------------------------------------------
-# Generate az cli commands (for SDK/CLI-based registration)
-# -----------------------------------------------------------------------
-Write-Step "CLI Commands (if using Foundry Agent SDK)"
-
-Write-Host @"
-
-  # Install the Foundry Agent SDK (if needed)
-  uv pip install azure-ai-projects azure-identity
-
-  # Python quick-start to create the agent programmatically:
-  # See: scripts/create_agent.py (generated below)
-
-  # Or via REST API:
-  # POST {project-endpoint}/agents?api-version=2025-05-01
-  # Body: { "name": "$AgentName", "model": "$ModelDeployment", "instructions": "<system-prompt>", "tools": [...] }
-
-"@ -ForegroundColor Gray
-
-# -----------------------------------------------------------------------
-# Generate Python helper script
-# -----------------------------------------------------------------------
-$pythonScript = @"
-"""
-create_agent.py — Register the IQ triage agent via the Foundry Agent SDK.
-
-Usage:
-    export AZURE_AI_PROJECT_ENDPOINT="https://your-project.services.ai.azure.com"
-    uv run python scripts/create_agent.py
-
-Prerequisites:
-    uv pip install azure-ai-projects azure-identity
-"""
-
-import json
-import os
-from pathlib import Path
-
-from azure.ai.projects import AIProjectClient
-from azure.ai.projects.models import OpenApiTool, OpenApiAnonymousAuthDetails
-from azure.identity import DefaultAzureCredential
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-PROJECT_ENDPOINT = os.environ.get(
-    "AZURE_AI_PROJECT_ENDPOINT",
-    "TODO: set AZURE_AI_PROJECT_ENDPOINT env var or paste your endpoint here",
-)
-TOOL_SERVICE_URL = "$toolServiceUrl"
-MODEL_DEPLOYMENT = "$ModelDeployment"
-AGENT_NAME = "$AgentName"
-
-def main() -> None:
-    # Load system prompt
-    system_prompt = (REPO_ROOT / "foundry" / "prompts" / "system.md").read_text()
-
-    # Load and patch OpenAPI spec
-    spec = json.loads((REPO_ROOT / "foundry" / "tools.openapi.json").read_text())
-    spec["servers"][0]["url"] = TOOL_SERVICE_URL
-
-    # Connect to project
-    client = AIProjectClient(
-        endpoint=PROJECT_ENDPOINT,
-        credential=DefaultAzureCredential(),
-    )
-
-    # Create the agent
-    agent = client.agents.create_agent(
-        model=MODEL_DEPLOYMENT,
-        name=AGENT_NAME,
-        instructions=system_prompt,
-        tools=[
-            OpenApiTool(
-                name="iq-lab-tools",
-                description="IQ Lab tool endpoints for ticket triage and remediation",
-                spec=spec,
-                auth=OpenApiAnonymousAuthDetails(),
-            )
-        ],
-    )
-    print(f"Agent created: {agent.id}")
-    print(f"  Name:  {agent.name}")
-    print(f"  Model: {agent.model}")
-    print()
-    print("Test in the Foundry Agents playground:")
-    print(f"  https://ai.azure.com")
-
-if __name__ == "__main__":
-    main()
-"@
-
-$pythonScriptPath = Join-Path $RepoRoot "scripts\create_agent.py"
-$pythonScript | Set-Content $pythonScriptPath -Encoding UTF8
-Write-Ok "Python helper script generated: scripts/create_agent.py"
+"@ -ForegroundColor White
+}
 
 # -----------------------------------------------------------------------
 # Test prompts
@@ -261,18 +194,17 @@ Write-Host @"
   Once the agent is registered, test with these prompts:
 
   1. "Summarize ticket TKT-0042"
-     → Should call query-ticket-context, return a 3-bullet triage summary
+     -> Should call query-ticket-context, return a 3-bullet triage summary
 
   2. "What's the status of TKT-0018?"
-     → Should query context, cite severity/signal_type/metrics
+     -> Should query context, cite severity/signal_type/metrics
 
   3. "Remediate TKT-0042 by restarting BGP sessions"
-     → Should call request-approval, then wait for human approval
+     -> Should call request-approval, then wait for human approval
 
   4. "Post a summary to Teams for TKT-0042"
-     → Should call post-teams-summary (logged, not posted unless webhook set)
+     -> Should call post-teams-summary (logged, not posted unless webhook set)
 
 "@ -ForegroundColor White
 
-Write-Host "`nAgent registration helper complete." -ForegroundColor Green
-Write-Host "See scripts/README.md for the full walkthrough.`n" -ForegroundColor Gray
+Write-Host "`nAgent registration complete." -ForegroundColor Green

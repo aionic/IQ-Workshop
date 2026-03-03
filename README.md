@@ -52,7 +52,7 @@ curl http://localhost:8000/health
 
 # 4. Install deps + run tests (uv only, never pip)
 cd services/api-tools
-uv pip install -r requirements.txt
+uv sync --extra dev
 uv run pytest
 ```
 

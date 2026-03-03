@@ -51,11 +51,22 @@ function Test-Endpoint([string]$name, [scriptblock]$test) {
 # Resolve base URL
 # -----------------------------------------------------------------------
 if (-not $BaseUrl) {
-    $fqdn = az containerapp show `
-        -n ca-tools-iq-lab-dev -g $ResourceGroup `
-        --query "properties.configuration.ingress.fqdn" -o tsv 2>$null
-    if (-not $fqdn) { throw "Container App not found in $ResourceGroup" }
-    $BaseUrl = "https://$fqdn"
+    # Try Bicep deployment outputs first (most reliable)
+    $outputsRaw = az deployment group show `
+        --resource-group $ResourceGroup `
+        --name main `
+        --query "properties.outputs.toolServiceUrl.value" `
+        --output tsv 2>$null
+    if ($outputsRaw) {
+        $BaseUrl = $outputsRaw
+    }
+    else {
+        # Fallback: find the first container app in the RG
+        $fqdn = az containerapp list -g $ResourceGroup `
+            --query "[0].properties.configuration.ingress.fqdn" -o tsv 2>$null
+        if (-not $fqdn) { throw "No Container App found in $ResourceGroup" }
+        $BaseUrl = "https://$fqdn"
+    }
 }
 
 Write-Host "Target: $BaseUrl" -ForegroundColor White

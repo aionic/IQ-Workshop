@@ -54,8 +54,8 @@ az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties
 | **Container App** | `ca-tools-iq-lab-dev` |
 | **Tool Service URL** | `https://ca-tools-iq-lab-dev.jollydune-6d767ca5.westus3.azurecontainerapps.io` |
 | **CA Environment** | `cae-iq-lab-dev` |
-| **Current Image** | `acriqlabdev.azurecr.io/iq-tools:v3` |
-| **Active Revision** | `ca-tools-iq-lab-dev--0000003` |
+| **Current Image** | `acriqlabdev.azurecr.io/iq-tools:v4` |
+| **Active Revision** | `ca-tools-iq-lab-dev--0000004` |
 | **ACR** | `acriqlabdev.azurecr.io` |
 | **SQL Server** | `sql-iq-lab-dev.database.windows.net` |
 | **SQL Database** | `sqldb-iq` |
@@ -186,8 +186,8 @@ az deployment group create \
 
 | Priority | Task | Notes |
 |----------|------|-------|
-| 🔴 High | **Create prompt agent in Foundry** | Use MCP `agent_update` or `scripts/create_agent.py` |
-| 🔴 High | **Test agent E2E** | Invoke via playground or MCP `agents_connect` |
+| 🔴 High | **Create prompt agent in Foundry** | Run `uv run scripts/create_agent.py -g rg-iq-lab-dev` or `register-agent.ps1` |
+| 🔴 High | **Test agent E2E** | Invoke via AI Foundry playground at https://ai.azure.com |
 | 🟡 Medium | **Private networking** | Set `networkMode=private` in params, redeploy — tests VNet integration |
 | 🟡 Medium | **CI/CD pipeline** | `.github/workflows/` exist — configure secrets and enable |
 | 🟢 Low | **Load testing** | Validate concurrency / cold-start behavior |

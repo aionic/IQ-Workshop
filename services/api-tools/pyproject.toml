@@ -2,7 +2,7 @@
 name = "iq-foundry-agent-lab-tools"
 version = "0.1.0"
 description = "Tool endpoints for the IQ Foundry hosted agent workshop"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
@@ -26,7 +26,7 @@ dev = [
 # Ruff
 # ---------------------------------------------------------------------------
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 120
 src = ["app", "tests"]
 
@@ -63,7 +63,7 @@ known-first-party = ["app"]
 # Pyright
 # ---------------------------------------------------------------------------
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.12"
 typeCheckingMode = "basic"
 include = ["app"]
 exclude = ["tests"]
