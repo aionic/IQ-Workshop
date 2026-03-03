@@ -21,7 +21,7 @@
       "value": "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
     },
     "aiModelName": {
-      "value": "gpt-5-mini"
+      "value": "gpt-4.1-mini"
     },
     "aiModelVersion": {
       "value": "2025-08-07"

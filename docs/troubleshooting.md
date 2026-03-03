@@ -114,7 +114,7 @@
 - Verify the OpenAPI spec URL in the agent configuration points to the running tool service
 - Check that `foundry/tools.openapi.json` is valid: `spectral lint foundry/tools.openapi.json`
 - Ensure the tool service is reachable from the Foundry agent (check network connectivity)
-- Verify all 4 tool operations are listed: `queryTicketContext`, `requestApproval`, `executeRemediation`, `postTeamsSummary`
+- Verify all 4 tool operations are listed: `query_ticket_context`, `request_approval`, `execute_remediation`, `post_teams_summary`
 
 ### Agent produces hallucinated data
 

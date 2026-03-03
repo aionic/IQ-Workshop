@@ -17,7 +17,7 @@ Summarize ticket TKT-0042
 ```
 
 **What to observe:**
-- In the trace panel, confirm the agent calls `queryTicketContext` (the OpenAPI `operationId`)
+- In the trace panel, confirm the agent calls `query_ticket_context` (the function tool name)
 - The request body contains `{"ticket_id": "TKT-0042"}` — matching the schema
 - The response includes enriched ticket data (severity, signal_type, metrics, device/site info)
 
@@ -41,7 +41,7 @@ Execute remediation on TKT-0042 — restart monitoring
 ```
 
 **What to observe:**
-- The agent calls `requestApproval` **first** (not `executeRemediation` directly)
+- The agent calls `request_approval` **first** (not `execute_remediation` directly)
 - The response shows `status: PENDING` and an `approval_token`
 - The agent tells you it's awaiting approval
 
@@ -72,7 +72,7 @@ The remediation for TKT-0042 has been approved. Please execute it.
 ```
 
 **What to observe:**
-- The agent calls `executeRemediation` with the `approval_token` from Step 3
+- The agent calls `execute_remediation` with the `approval_token` from Step 3
 - Response includes `remediation_id`, `outcome`, `executed_utc`, and `correlation_id`
 
 ### Step 7: Verify Schema Validation

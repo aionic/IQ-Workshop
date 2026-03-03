@@ -62,7 +62,7 @@ az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties
 | **AI Services** | `ai-iq-lab-dev` (`https://ai-iq-lab-dev.cognitiveservices.azure.com/`) |
 | **Foundry Project** | `iq-lab-project` (standalone project under AI Services) |
 | **Project Endpoint** | `https://ai-iq-lab-dev.services.ai.azure.com/api/projects/iq-lab-project` |
-| **Model Deployment** | `gpt-5-mini` (GlobalStandard, 30K TPM, version 2025-08-07) |
+| **Model Deployment** | `gpt-4.1-mini` (GlobalStandard, 30K TPM, version 2025-08-07) |
 | **App Insights** | `InstrumentationKey=48e447dd-cbce-4d84-8375-7e704f28d31e` |
 
 ### Managed Identities

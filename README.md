@@ -6,7 +6,7 @@ on Azure Container Apps** — Foundry provides the LLM, your code controls every
 
 ## What This Is
 
-A **Foundry prompt agent** backed by gpt-5-mini that:
+A **Foundry prompt agent** backed by gpt-4.1-mini that:
 1. Reads structured IQ data (tickets, anomalies, devices) via function tool calls
 2. Produces terse triage summaries grounded in specific fields
 3. Proposes safe remediation actions requiring human approval
@@ -18,7 +18,7 @@ A **Foundry prompt agent** backed by gpt-5-mini that:
 
 ```mermaid
 flowchart LR
-  U[User / chat_agent.py] --> A[Foundry Prompt Agent\ngpt-5-mini]
+  U[User / chat_agent.py] --> A[Foundry Prompt Agent\ngpt-4.1-mini]
   A -->|requires_action| U
   U -->|HTTP call| Q[Tool Service on ACA\nFastAPI :8000]
   Q --> D[(Azure SQL: iq_* tables)]
@@ -29,7 +29,7 @@ flowchart LR
 
 | Component | Technology |
 |---|---|
-| Agent | Azure AI Foundry Prompt Agent (gpt-5-mini, Responses API) |
+| Agent | Azure AI Foundry Prompt Agent (gpt-4.1-mini, Responses API) |
 | Tool Service | Python FastAPI on Azure Container Apps (self-hosted) |
 | Client Loop | `chat_agent.py` — intercepts requires_action, calls tool service |
 | Database | Azure SQL (deployed) / SQL Server 2022 Developer (local) |

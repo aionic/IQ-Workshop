@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Turnkey deployment script for workshop proctors and lab participants.
-    Deploys all Bicep resources (SQL, ACR, Container Apps, AI Services + gpt-5-mini),
+    Deploys all Bicep resources (SQL, ACR, Container Apps, AI Services + gpt-4.1-mini),
     builds the tool service image, updates the Container App, and optionally
     seeds the database and grants managed identity permissions.
 
