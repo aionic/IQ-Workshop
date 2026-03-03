@@ -81,6 +81,8 @@ When making changes, update ALL related files:
 | New env var | `.env.example`, `docker-compose.yml`, `services/api-tools/Dockerfile` (if needed), `foundry/agent.yaml`, `infra/bicep/main.bicep` |
 | Bicep resource change | `infra/bicep/main.bicep`, `infra/bicep/parameters.dev.json`, `infra/bicep/parameters.private.json` |
 | Guardrail change | `docs/guardrails.md`, `foundry/prompts/system.md` |
+| New eval case | `evals/dataset.json` — add case with assertions |
+| New eval scorer | `evals/scorers.py` — add function + register in `ALL_SCORERS` |
 
 ## Testing
 
@@ -88,6 +90,7 @@ When making changes, update ALL related files:
 - Tests use `httpx.AsyncClient` with `pytest-asyncio`
 - DB layer is mocked by default; set `TEST_USE_DB=true` to test against local SQL container
 - Run tests: `cd services/api-tools && uv run pytest`
+- Run agent evals: `uv run evals/run_evals.py --resource-group rg-iq-lab-dev`
 - Run locally: `docker compose up` from repo root
 
 ## Local Development

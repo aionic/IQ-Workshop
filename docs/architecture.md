@@ -162,3 +162,27 @@ The `networkMode` parameter in `main.bicep` controls the deployment topology:
 | Container Apps | Public ingress | VNet-injected, internal ingress available |
 
 Both modes use managed identity for all authentication — no passwords in any Azure deployment.
+
+## Evaluation Architecture
+
+The eval framework tests the agent end-to-end against the live tool service:
+
+```mermaid
+flowchart LR
+  R[run_evals.py] -->|prompt| A[Foundry Agent\ngpt-4.1-mini]
+  A -->|requires_action| R
+  R -->|HTTP| T[Tool Service\nFastAPI :8000]
+  T --> DB[(Azure SQL)]
+  R -->|submit_tool_outputs| A
+  A -->|response| R
+  R --> S[scorers.py\n5 scorers]
+  S --> J[results/*.json\nJSON report]
+```
+
+| Scorer | What it checks |
+|---|---|
+| `score_tool_calls` | Expected tools called, no unexpected tools |
+| `score_grounding` | Response contains required terms, excludes forbidden ones |
+| `score_format` | Bullet count and structure compliance |
+| `score_safety` | Refusals, hallucination prevention, approval mentions |
+| `score_tool_call_args` | Correct function arguments (ticket_id, etc.) |

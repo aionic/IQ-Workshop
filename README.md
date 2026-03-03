@@ -86,6 +86,7 @@ az deployment group create \
 | [Lab 2](docs/labs/lab-2-structured-data-grounding.md) | Structured Data Grounding | 15 min |
 | [Lab 3](docs/labs/lab-3-governance-safety.md) | Governance & Safety Controls | 20 min |
 | [Lab 4](docs/labs/lab-4-teams-publish.md) | Optional Teams Publish | 10 min |
+| [Lab 5](docs/labs/lab-5-agent-evaluation.md) | Agent Evaluation | 20 min |
 
 ## Build Phases
 
@@ -111,6 +112,7 @@ This repo was built in 3 phases. See `phases/` for progress checklists:
 - [Runbook](docs/runbook.md) — 15-minute demo script, playground testing guide
 - [Troubleshooting](docs/troubleshooting.md) — Common issues and resolutions
 - [Playground Prompts](samples/playground-prompts.md) — Sample prompts for testing
+- [Agent Evaluations](evals/README.md) — Automated eval suite (grounding, safety, governance)
 
 ## License
 
@@ -127,6 +129,7 @@ This project is licensed under the [MIT License](LICENSE).
 ├── scripts/                    # Deployment, agent registration, chat runner, smoke test
 ├── services/api-tools/         # FastAPI tool service (Python, self-hosted on ACA)
 ├── data/                       # SQL schema, seed data, permission grants
+├── evals/                      # Agent evaluation suite (dataset, scorers, runner)
 ├── samples/                    # Playground prompts, sample outputs
 ├── phases/                     # Build phase checklists
 ├── docker-compose.yml          # Local development environment

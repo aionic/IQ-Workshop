@@ -38,5 +38,8 @@ sql-data/
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Eval results (generated, not committed)
+evals/results/
 *.cover
 infra/bicep/main.json
