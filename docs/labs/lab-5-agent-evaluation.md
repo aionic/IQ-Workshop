@@ -22,11 +22,11 @@
 
 ## Part 1 — Run the Local Eval Suite
 
-The eval runner (`evals/run_evals.py`) sends 16 test cases to the live Foundry agent,
+The eval runner (`evals/run_evals.py`) sends 17 test cases to the live Foundry agent,
 scores each response with 6 independent scorers, and saves a timestamped JSON report.
 
 ```powershell
-# Run all 16 cases (MCP mode is the default)
+# Run all 17 cases (MCP mode is the default)
 uv run evals/run_evals.py --resource-group rg-iq-lab-dev
 ```
 

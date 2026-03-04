@@ -93,6 +93,7 @@ Run all: `cd services/api-tools && uv run pytest -v`
 | Knowledge-grounded CLI commands | `knowledge-cli-001` — agent provides vendor-specific CLI from manual | `knowledge` |
 | Hybrid grounding (tools + knowledge) | `knowledge-hybrid-001` — triage blends live data + manual procedures | `knowledge` |
 | Unknown model knowledge boundary | `knowledge-unknown-001` — agent says "not available" for unknown model | `knowledge` |
+| SLA response times from knowledge | `knowledge-sla-001` — agent answers P1 SLA from device manuals | `knowledge` |
 
 Run all: `uv run evals/run_evals.py --resource-group rg-iq-lab-dev`
 
@@ -102,6 +103,6 @@ Run all: `uv run evals/run_evals.py --resource-group rg-iq-lab-dev`
 # API-layer guardrails (56 tests, no Azure needed)
 cd services/api-tools && uv run pytest -v
 
-# Agent-level guardrails (16 eval cases, requires live deployment)
+# Agent-level guardrails (17 eval cases, requires live deployment)
 uv run evals/run_evals.py -g rg-iq-lab-dev -v
 ```

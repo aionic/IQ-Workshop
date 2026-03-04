@@ -86,7 +86,7 @@ uv run pytest -v
 | `test_edge_cases.py` | 10 | Edge cases — null fields, wrong methods, unknown routes |
 | `test_mcp_server.py` | 13 | MCP server — tools, JSON-RPC, transport security |
 
-### Agent Evaluations (16 cases, requires Azure deployment)
+### Agent Evaluations (17 cases, requires Azure deployment)
 
 ```bash
 # Full suite
@@ -104,7 +104,7 @@ uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
 | `grounding` | 2 | Metric citation, format compliance |
 | `tool_use` | 1 | Correct tool selection + arguments |
 | `consistency` | 1 | Same data across queries |
-| `knowledge` | 4 | Device manual grounding, CLI commands, hybrid triage |
+| `knowledge` | 5 | Device manual grounding, CLI commands, SLA, hybrid triage |
 
 Results are saved to `evals/results/` as timestamped JSON reports. Upload to Foundry's portal dashboard:
 
@@ -116,7 +116,29 @@ See [evals/README.md](evals/README.md) for details.
 
 ## Deploy to Azure
 
-See [Lab 0 — Environment Setup](docs/labs/lab-0-environment-setup.md) for full instructions.
+See [Lab 0 — Environment Setup](docs/labs/lab-0-environment-setup.md) for full instructions
+including all [variables to customize](docs/labs/lab-0-environment-setup.md#variables-you-must-customize).
+
+### Subscription Requirements
+
+| Requirement | Details |
+|---|---|
+| **Azure Roles** | **Owner** on the resource group (or Contributor + Role Based Access Control Administrator) |
+| **SQL Entra Admin** | Your Entra ID user must be set as `entraAdminObjectId` in Bicep parameters |
+| **Resource Providers** | `Microsoft.Sql`, `Microsoft.ContainerRegistry`, `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.ManagedIdentity`, `Microsoft.OperationalInsights`, `Microsoft.Insights`, `Microsoft.Authorization` |
+| **Model Quota** | gpt-4.1-mini capacity in your region (default: 30K TPM in `westus3`) |
+| **Cognitive Services Purge** | If redeploying within 48h of teardown, you need `Cognitive Services Contributor` at subscription scope to purge soft-deleted accounts |
+
+### Required Variables to Change
+
+Before deploying, update `infra/bicep/parameters.dev.json`:
+
+| Parameter | How to find your value |
+|---|---|
+| `entraAdminObjectId` | `az ad signed-in-user show --query id -o tsv` |
+| `entraAdminDisplayName` | Your name or group name matching the Object ID |
+
+All other parameters have working defaults. See [Lab 0](docs/labs/lab-0-environment-setup.md#variables-you-must-customize) for the complete variable reference.
 
 **Public mode** (workshop default):
 ```bash

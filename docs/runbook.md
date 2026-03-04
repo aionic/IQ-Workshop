@@ -194,7 +194,7 @@ Run all 12 evaluation cases against the live agent:
 uv run evals/run_evals.py --resource-group rg-iq-lab-dev
 ```
 
-**Expected:** 14–16/16 cases pass (LLM non-determinism may cause occasional failures).
+**Expected:** 15–17/17 cases pass (LLM non-determinism may cause occasional failures).
 
 ### Verbose single-case run (for demo)
 

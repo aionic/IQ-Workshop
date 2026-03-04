@@ -36,6 +36,10 @@ Without knowledge (skip device manual upload):
 
     uv run scripts/create_agent.py --resource-group rg-iq-lab-dev --no-knowledge
 
+Force re-upload knowledge files (replace existing vector store):
+
+    uv run scripts/create_agent.py --resource-group rg-iq-lab-dev --force-knowledge
+
 Or with explicit env vars:
 
     $env:AZURE_AI_PROJECT_ENDPOINT = "https://<ai-services>.services.ai.azure.com/api/projects/<project>"
@@ -197,10 +201,58 @@ def _resolve_from_bicep(resource_group: str) -> dict[str, str]:
     }
 
 
+def _find_existing_vector_store(
+    project_client: AIProjectClient,
+    name: str = "iq-device-manuals",
+) -> str | None:
+    """Return the ID of an existing vector store with the given name, or None."""
+    # Also check .agent-state.json for a previously saved vector store ID.
+    state_path = REPO_ROOT / ".agent-state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text())
+            vs_id = state.get("vector_store_id")
+            if vs_id:
+                # Verify it still exists
+                try:
+                    vs = project_client.agents.vector_stores.get(vector_store_id=vs_id)
+                    if vs and vs.name == name:
+                        return vs.id
+                except Exception:
+                    pass  # stale reference — fall through to re-create
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # List vector stores and look for one matching our name
+    try:
+        stores = project_client.agents.vector_stores.list()
+        for vs in stores:
+            if vs.name == name:
+                return vs.id
+    except Exception:
+        pass  # listing not supported or empty — fall through
+
+    return None
+
+
 def _upload_knowledge(
     project_client: AIProjectClient,
+    *,
+    force: bool = False,
 ) -> str | None:
-    """Upload knowledge files and create a vector store. Returns vector_store_id."""
+    """Upload knowledge files and create a vector store. Returns vector_store_id.
+
+    When *force* is False (default), reuses an existing vector store named
+    ``iq-device-manuals`` if one is found — preventing duplicate uploads on
+    repeated ``create_agent.py`` invocations.
+    """
+    if not force:
+        existing_id = _find_existing_vector_store(project_client)
+        if existing_id:
+            print(f"  Reusing existing vector store: {existing_id}")
+            print("  (pass --force-knowledge to re-upload)")
+            return existing_id
+
     print("Uploading knowledge files...")
     file_ids: list[str] = []
     for entry in KNOWLEDGE_FILES:
@@ -254,6 +306,11 @@ def main() -> None:
         "--no-knowledge",
         action="store_true",
         help="Skip uploading device manuals and creating a vector store.",
+    )
+    parser.add_argument(
+        "--force-knowledge",
+        action="store_true",
+        help="Re-upload knowledge files even if a vector store already exists.",
     )
     args = parser.parse_args()
 
@@ -312,7 +369,9 @@ def main() -> None:
     vector_store_id: str | None = None
     if not args.no_knowledge:
         print()
-        vector_store_id = _upload_knowledge(project_client)
+        vector_store_id = _upload_knowledge(
+            project_client, force=args.force_knowledge,
+        )
         if vector_store_id:
             file_search_tool = FileSearchTool(vector_store_ids=[vector_store_id])
             tools.append(file_search_tool)

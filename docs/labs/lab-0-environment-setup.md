@@ -14,8 +14,113 @@ Before starting, ensure you have:
 - **Docker Desktop** (for local dev) — `docker --version`
 - **Python 3.11+** — `python --version`
 - **uv** (Python package manager) — `uv --version` (install: `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- **Azure subscription** with Contributor access (for Azure deployment tracks)
+- **Azure subscription** with required permissions (see [Required Azure Permissions](#required-azure-permissions) below)
 - **Git** — `git --version`
+
+---
+
+## Required Azure Permissions
+
+The deploying user (your Azure CLI identity) needs the following permissions on the target subscription or resource group:
+
+| Permission / Role | Why it's needed | Scope |
+|---|---|---|
+| **Contributor** | Create resource groups, deploy Bicep resources (SQL, ACR, Container Apps, AI Services, managed identities, VNet) | Subscription or Resource Group |
+| **User Access Administrator** _or_ **Role Based Access Control Administrator** | The Bicep template assigns RBAC roles (AcrPull for managed identity, Cognitive Services OpenAI User for MI) | Resource Group |
+| **Cognitive Services Contributor** | Purge soft-deleted Cognitive Services accounts if redeploying within 48 hours | Subscription (for `az cognitiveservices account purge`) |
+| **SQL Server Entra Admin** | Seed the database and grant managed identity permissions (`CREATE USER ... FROM EXTERNAL PROVIDER`) | Configured in Bicep parameters (`entraAdminObjectId`) |
+
+> **Minimum combined role:** **Owner** on the resource group covers Contributor + User Access Administrator.
+> For least-privilege setups, assign **Contributor** + **Role Based Access Control Administrator** at the resource group scope.
+
+### Resource Providers Required
+
+The following Azure resource providers must be registered on your subscription. Most are registered by default, but verify with `az provider list --query "[?registrationState=='Registered'].namespace" -o tsv`:
+
+| Provider | Resources |
+|---|---|
+| `Microsoft.Sql` | Azure SQL Server + Database |
+| `Microsoft.ContainerRegistry` | Azure Container Registry |
+| `Microsoft.App` | Container Apps + Managed Environment |
+| `Microsoft.ManagedIdentity` | User-assigned Managed Identities |
+| `Microsoft.CognitiveServices` | Azure AI Services + Foundry Project + Model Deployment |
+| `Microsoft.OperationalInsights` | Log Analytics Workspace |
+| `Microsoft.Insights` | Application Insights (+ AMPLS in private mode) |
+| `Microsoft.Authorization` | Role assignments (AcrPull, Cognitive Services OpenAI User) |
+| `Microsoft.Network` | VNet, private endpoints, DNS zones (private mode only) |
+
+Register any missing providers:
+```bash
+az provider register --namespace Microsoft.CognitiveServices
+az provider register --namespace Microsoft.App
+```
+
+---
+
+## Variables You Must Customize
+
+The Bicep parameter files contain placeholder values that **must** be updated before deployment. The table below lists every variable you need to set — nothing else needs changing for a default workshop deployment.
+
+### Bicep Parameters (`infra/bicep/parameters.dev.json`)
+
+| Parameter | Current Value | What to Set | Required |
+|---|---|---|---|
+| `entraAdminObjectId` | `98e79176-ff79-441d-ae4e-2bfc5ccf1a06` | Your Entra ID user or group Object ID (find with `az ad signed-in-user show --query id -o tsv`) | **Yes** |
+| `entraAdminDisplayName` | `Anthony Nevico` | Your name or group name matching the Object ID | **Yes** |
+| `location` | `westus3` | Azure region — change only if `westus3` doesn't have gpt-4.1-mini capacity | Optional |
+| `environmentName` | `dev` | Suffix for all resource names (e.g., `sql-iq-lab-dev`) | Optional |
+| `aiModelName` | `gpt-4.1-mini` | Model to deploy — must be available in your region | Optional |
+| `aiModelVersion` | `2025-04-14` | Model version — update if a newer version is available | Optional |
+| `aiModelCapacity` | `30` | TPM capacity in 1K units (30 = 30K TPM) — increase if you hit quota limits | Optional |
+| `toolServiceImage` | `mcr.microsoft.com/azuredocs/containerapps-helloworld:latest` | Leave as-is — `deploy.ps1` replaces this after ACR build | Do not change |
+
+### Bicep Parameters — Private Mode (`infra/bicep/parameters.private.json`)
+
+Same as above, **plus** these additional parameters:
+
+| Parameter | Current Value | What to Set | Required |
+|---|---|---|---|
+| `entraAdminObjectId` | `TODO: your-entra-user-or-group-object-id` | Your Entra ID Object ID | **Yes** |
+| `entraAdminDisplayName` | `TODO: Your Name or Group Name` | Your display name | **Yes** |
+| `location` | `west3` | **Fix to** `westus3` (or your preferred region) — the default has a typo | **Yes** |
+| `vnetAddressPrefix` | `10.0.0.0/16` | VNet CIDR — change only if it conflicts with existing networks | Optional |
+| `snetContainerAppsPrefix` | `10.0.1.0/24` | Container Apps subnet CIDR | Optional |
+| `snetPrivateEndpointsPrefix` | `10.0.2.0/24` | Private endpoints subnet CIDR | Optional |
+
+### Script Defaults
+
+The deployment scripts have sensible defaults but accept overrides:
+
+| Script | Parameter | Default | What to change |
+|---|---|---|---|
+| `deploy.ps1` | `-ResourceGroup` | `rg-iq-lab-dev` | Your preferred resource group name |
+| `deploy.ps1` | `-Location` | `westus3` | Azure region |
+| `deploy.ps1` | `-ParameterFile` | `infra/bicep/parameters.dev.json` | Use `parameters.private.json` for private mode |
+| `register-agent.ps1` | `-ResourceGroup` | `rg-iq-lab-dev` | Must match what you used for deployment |
+| `seed-database.ps1` | `-ResourceGroup` | `rg-iq-lab-dev` | Must match what you used for deployment |
+| `smoke-test.ps1` | `-ResourceGroup` | `rg-iq-lab-dev` | Must match what you used for deployment |
+
+### Local Development (`.env`)
+
+| Variable | Default in `.env.example` | What to change |
+|---|---|---|
+| `SA_PASSWORD` | `YourStr0ngP@ssword!` | Set a strong password (local SQL container only) |
+| `DB_AUTH_MODE` | `password` | Leave as `password` for local; `deploy.ps1` sets `token` for Azure |
+| `AZURE_SQL_SERVER_FQDN` | `localhost` | Leave as `localhost` for local; Azure uses Bicep output |
+| `AZURE_SQL_DATABASE_NAME` | `sqldb-iq` | Leave as-is (matches Bicep) |
+
+### How to Find Your Entra Admin Object ID
+
+```powershell
+# Your own Object ID (signed-in user)
+az ad signed-in-user show --query id -o tsv
+
+# A specific user
+az ad user show --id user@contoso.com --query id -o tsv
+
+# A group
+az ad group show --group "IQ Lab Admins" --query id -o tsv
+```
 
 ## Track A: Public Mode (Workshop Default)
 

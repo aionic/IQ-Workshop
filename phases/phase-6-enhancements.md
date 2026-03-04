@@ -1,6 +1,7 @@
 # Phase 6 — Feature Enhancements (Planning)
 
-> **Status:** Section B (Knowledge Grounding) substantially implemented.
+> **Status:** Section B (Knowledge Grounding) complete — all B.1–B.6 items done.
+> Section B.5 live hybrid grounding tests require Azure deployment.
 > Sections A, C–H remain in planning/partial state.
 
 ---
@@ -94,7 +95,7 @@ Additional operational docs uploaded as knowledge:
 - [x] Register files as `VectorStoreKnowledge` with `FileSearchTool` on the agent definition
 - [x] Add `--no-knowledge` flag to `create_agent.py` (default: knowledge enabled)
 - [x] Store vector store ID in `.agent-state.json` for cleanup/re-creation
-- [ ] Test file upload idempotency (re-running create_agent.py shouldn't duplicate files)
+- [x] Add idempotency guard — reuse existing vector store, `--force-knowledge` to re-upload
 
 #### Phase B.3 — Update System Prompt
 - [x] Add knowledge rule (Rule 6) to `foundry/prompts/system.md`
@@ -108,6 +109,10 @@ Additional operational docs uploaded as knowledge:
 - [x] Document knowledge registration in `docs/architecture.md`
 
 #### Phase B.5 — Hybrid Grounding Testing
+
+> **Note:** Live hybrid grounding tests require an Azure deployment with the agent registered.
+> Run these after `uv run scripts/create_agent.py --resource-group rg-iq-lab-dev`.
+
 - [x] Add knowledge playground prompts to `samples/playground-prompts.md`
 - [ ] Test: "How do I fix BGP instability on a Nokia 7750 SR?" → answer from manual
 - [ ] Test: "Summarize TKT-0042" → triage uses live data + manual context for recommendations
@@ -120,7 +125,7 @@ Additional operational docs uploaded as knowledge:
 - [x] Add eval case: `knowledge-hybrid-001` — triage summary blends live data + manual procedures
 - [x] Add eval case: `knowledge-unknown-001` — agent says "manual not available" for unknown model
 - [x] Add scorer: `score_knowledge` — checks manual citation and knowledge grounding in responses
-- [ ] Add eval case: `knowledge-sla-001` — agent answers "What's the SLA for P1?" from docs
+- [x] Add eval case: `knowledge-sla-001` — agent answers "What's the SLA for P1?" from docs
 
 ### Architecture: Knowledge Registration Flow
 

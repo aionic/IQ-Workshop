@@ -48,7 +48,7 @@ evals/
 | `grounding`   | Metric citation, field-level accuracy                    | 2     |
 | `tool_use`    | Correct tool selection and argument passing              | 1     |
 | `consistency` | Same data across multiple questions                      | 1     |
-| `knowledge`   | Device manual grounding, CLI commands, hybrid triage     | 4     |
+| `knowledge`   | Device manual grounding, CLI commands, SLA, hybrid triage    | 5     |
 
 ## Scorers
 

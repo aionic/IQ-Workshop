@@ -212,6 +212,19 @@
         "requires_tool_call": false,
         "no_hallucination": true
       }
+    },
+    {
+      "id": "knowledge-sla-001",
+      "category": "knowledge",
+      "description": "Agent should answer SLA response time questions from device manuals",
+      "prompt": "What is the SLA response time and resolution target for a P1 critical ticket?",
+      "expected_tools": [],
+      "assertions": {
+        "must_contain_any": ["15 min", "15 minute", "4 hour", "P1"],
+        "requires_tool_call": false,
+        "requires_knowledge_citation": true,
+        "no_hallucination": true
+      }
     }
   ]
 }
