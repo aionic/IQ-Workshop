@@ -4,7 +4,7 @@
 # Run:   docker run -p 8000:8000 --env-file ../../.env iq-tools
 # ============================================================================
 
-FROM python:3.12-slim AS base
+FROM python:3.14-slim AS base
 
 # --- Install uv (fast Python package manager) ---
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
