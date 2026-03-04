@@ -37,6 +37,12 @@
     },
     "aiModelCapacity": {
       "value": 30
+    },
+    "uniqueSuffix": {
+      "value": ""
+    },
+    "skipRoleAssignments": {
+      "value": false
     }
   }
 }

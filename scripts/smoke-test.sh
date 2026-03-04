@@ -188,12 +188,12 @@ test_endpoint "Post Teams summary" bash -c "
 # ---------------------------------------------------------------------------
 step "8/8 — POST /mcp (MCP server reachable)"
 test_endpoint "MCP server responds" bash -c "
-    code=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$BASE_URL/mcp' \
+    resp=\$(curl -fsS -X POST '$BASE_URL/mcp' \
         -H 'Content-Type: application/json' \
         -H 'Accept: application/json' \
         -d '{\"jsonrpc\": \"2.0\", \"method\": \"initialize\", \"id\": 1, \"params\": {\"protocolVersion\": \"2025-03-26\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"smoke-test\", \"version\": \"1.0\"}}}' \
         --max-time 10)
-    [[ \"\$code\" == '200' ]]
+    echo \"\$resp\" | grep -q '\"result\"'
 "
 
 # ---------------------------------------------------------------------------

@@ -49,8 +49,10 @@ param(
     [string]$Location = "westus3",
     [string]$ParameterFile = "$PSScriptRoot\..\infra\bicep\parameters.dev.json",
     [string]$ImageTag = "v$(Get-Date -Format 'yyyyMMdd-HHmm')",
+    [string]$UniqueSuffix = "",
     [switch]$SkipBicep,
     [switch]$SkipImage,
+    [switch]$SkipRoleAssignments,
     [switch]$SeedDatabase
 )
 
@@ -145,18 +147,47 @@ function Resolve-SoftDeletedCognitiveServices([string]$rg, [string]$loc) {
 if (-not $SkipBicep) {
     Resolve-SoftDeletedCognitiveServices -rg $ResourceGroup -loc $Location
 
+    # ---------------------------------------------------------------
+    # Prompt for unique suffix if not provided (avoids global name
+    # collisions on SQL Server, ACR, AI Services)
+    # ---------------------------------------------------------------
+    if ([string]::IsNullOrWhiteSpace($UniqueSuffix)) {
+        Write-Host ""
+        Write-Host "  Resource names for SQL Server, ACR, and AI Services must be globally" -ForegroundColor Yellow
+        Write-Host "  unique across all Azure tenants. A short suffix avoids collisions." -ForegroundColor Yellow
+        $UniqueSuffix = Read-Host "  Enter a unique suffix (e.g. your initials + 2 digits: an42) or press Enter to skip"
+    }
+
+    # Build parameter overrides
+    $bicepOverrides = @()
+    if (-not [string]::IsNullOrWhiteSpace($UniqueSuffix)) {
+        $bicepOverrides += "uniqueSuffix=$UniqueSuffix"
+    }
+    if ($SkipRoleAssignments) {
+        $bicepOverrides += "skipRoleAssignments=true"
+    }
+
     Write-Step "Deploying Bicep infrastructure"
     Write-Host "  Template:   $BicepFile"
     Write-Host "  Parameters: $ParameterFile"
     Write-Host "  RG:         $ResourceGroup"
+    if ($UniqueSuffix) { Write-Host "  Suffix:     $UniqueSuffix" }
+    if ($SkipRoleAssignments) { Write-Host "  RBAC:       skipped (Contributor-only mode)" -ForegroundColor Yellow }
 
     # Run Bicep deployment — stderr goes to console, stdout captured as JSON
-    $deployRaw = az deployment group create `
-        --resource-group $ResourceGroup `
-        --template-file $BicepFile `
-        --parameters $ParameterFile `
-        --query "properties.{state:provisioningState, outputs:outputs}" `
-        --output json
+    $deployArgs = @(
+        "deployment", "group", "create",
+        "--resource-group", $ResourceGroup,
+        "--template-file", $BicepFile,
+        "--parameters", $ParameterFile
+    )
+    foreach ($override in $bicepOverrides) {
+        $deployArgs += "--parameters"
+        $deployArgs += $override
+    }
+    $deployArgs += @("--query", "properties.{state:provisioningState, outputs:outputs}", "--output", "json")
+
+    $deployRaw = & az @deployArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Bicep deployment failed (exit code $LASTEXITCODE). Review errors above."
     }
@@ -262,10 +293,49 @@ Write-Host "`n============================================" -ForegroundColor Gre
 Write-Host " Deployment complete!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "Next steps:"
-if (-not $SeedDatabase) {
-    Write-Host "  1. Seed + grant MI permissions: .\scripts\deploy.ps1 -SeedDatabase -SkipBicep -SkipImage"
+
+# -----------------------------------------------------------------------
+# Post-deploy: role assignment commands for Contributor-only deploys
+# -----------------------------------------------------------------------
+if ($SkipRoleAssignments) {
+    Write-Host ""
+    Write-Host "  RBAC ROLE ASSIGNMENTS WERE SKIPPED." -ForegroundColor Yellow
+    Write-Host "  Ask an Owner or RBAC Administrator to run these 3 commands:" -ForegroundColor Yellow
+    Write-Host ""
+    # Fetch principal IDs from deployment outputs
+    $roleOutputs = az deployment group show `
+        --resource-group $ResourceGroup `
+        --name main `
+        --query "properties.outputs" `
+        --output json 2>$null | Out-String | ConvertFrom-Json
+    $miToolsPid  = if ($roleOutputs) { $roleOutputs.miToolsPrincipalId.value } else { '<miToolsPrincipalId>' }
+    $miAgentPid  = if ($roleOutputs) { $roleOutputs.miAgentPrincipalId.value } else { '<miAgentPrincipalId>' }
+    $acrId       = if ($roleOutputs) { "/subscriptions/$($account.id)/resourceGroups/$ResourceGroup/providers/Microsoft.ContainerRegistry/registries/$($roleOutputs.acrLoginServer.value -replace '\.azurecr\.io','')" } else { '<acrResourceId>' }
+    $aiName      = if ($roleOutputs) { $roleOutputs.aiServicesName.value } else { '<aiServicesName>' }
+    $aiId        = "/subscriptions/$($account.id)/resourceGroups/$ResourceGroup/providers/Microsoft.CognitiveServices/accounts/$aiName"
+
+    Write-Host "  # 1. AcrPull — let Container Apps pull images"
+    Write-Host "  az role assignment create --assignee-object-id $miToolsPid --assignee-principal-type ServicePrincipal --role 'AcrPull' --scope $acrId" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  # 2. Cognitive Services OpenAI User — tool service MI"
+    Write-Host "  az role assignment create --assignee-object-id $miToolsPid --assignee-principal-type ServicePrincipal --role 'Cognitive Services OpenAI User' --scope $aiId" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  # 3. Cognitive Services OpenAI User — agent MI"
+    Write-Host "  az role assignment create --assignee-object-id $miAgentPid --assignee-principal-type ServicePrincipal --role 'Cognitive Services OpenAI User' --scope $aiId" -ForegroundColor White
+    Write-Host ""
 }
-Write-Host "  $(if ($SeedDatabase) {'1'} else {'2'}). Register Foundry agent: .\scripts\register-agent.ps1"
-Write-Host "  $(if ($SeedDatabase) {'2'} else {'3'}). Open AI Foundry playground and test the agent"
+
+Write-Host "Next steps:"
+$step = 1
+if (-not $SeedDatabase) {
+    Write-Host "  $step. Seed + grant MI permissions: .\scripts\deploy.ps1 -SeedDatabase -SkipBicep -SkipImage"
+    $step++
+}
+if ($SkipRoleAssignments) {
+    Write-Host "  $step. Create the 3 RBAC role assignments shown above (requires Owner or RBAC Admin)"
+    $step++
+}
+Write-Host "  $step. Register Foundry agent: .\scripts\register-agent.ps1"
+$step++
+Write-Host "  $step. Open AI Foundry playground and test the agent"
 Write-Host ""

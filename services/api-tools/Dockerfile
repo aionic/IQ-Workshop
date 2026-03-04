@@ -10,6 +10,7 @@ FROM python:3.12-slim AS base
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # --- Install ODBC Driver 18 for SQL Server ---
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         curl \
@@ -25,10 +26,15 @@ RUN apt-get update \
     && apt-get purge -y curl gnupg2 apt-transport-https \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Python dependencies (via uv, never pip) ---
+# --- Python dependencies in a virtualenv (via uv, never pip) ---
+# Using a venv avoids polluting the system Python and makes the image
+# reproducible regardless of base-image changes.
 WORKDIR /app
 COPY requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+RUN uv venv /app/.venv \
+    && VIRTUAL_ENV=/app/.venv uv pip install --no-cache -r requirements.txt
+ENV PATH="/app/.venv/bin:$PATH" \
+    VIRTUAL_ENV="/app/.venv"
 
 # --- Application code ---
 COPY app/ ./app/

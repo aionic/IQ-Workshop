@@ -46,25 +46,32 @@ param aiModelVersion string = '2025-04-14'
 @description('Model deployment capacity in 1K TPM units (e.g. 30 = 30K TPM)')
 param aiModelCapacity int = 30
 
+@description('Short unique suffix to make globally-scoped resource names unique (e.g. your initials + random digits: an42). Appended to SQL server, ACR, and AI Services names.')
+param uniqueSuffix string = ''
+
+@description('Skip RBAC role assignments in Bicep. Set to true when the deploying identity only has Contributor (not Owner or RBAC Administrator). You must then create the 3 role assignments out-of-band — see docs/labs/lab-0-environment-setup.md.')
+param skipRoleAssignments bool = false
+
 // -----------------------------------------------------------------------
 // Variables
 // -----------------------------------------------------------------------
 
 var suffix = 'iq-lab-${environmentName}'
+var globalSuffix = empty(uniqueSuffix) ? suffix : '${suffix}-${uniqueSuffix}'
 var isPrivate = networkMode == 'private'
 
-var sqlServerName = 'sql-${suffix}'
+var sqlServerName = 'sql-${globalSuffix}'
 var sqlDatabaseName = 'sqldb-iq'
 var lawName = 'law-${suffix}'
 var appInsightsName = 'appi-${suffix}'
-var acrName = replace('acr${suffix}', '-', '') // ACR names must be alphanumeric
+var acrName = replace('acr${globalSuffix}', '-', '') // ACR names must be alphanumeric
 var caEnvName = 'cae-${suffix}'
 var caName = 'ca-tools-${suffix}'
 var miToolsName = 'id-iq-tools-${suffix}'
 var miAgentName = 'id-iq-agent-${suffix}'
 var vnetName = 'vnet-${suffix}'
 var amplsName = 'ampls-${suffix}'
-var aiServicesName = 'ai-${suffix}'
+var aiServicesName = 'ai-${globalSuffix}'
 
 // -----------------------------------------------------------------------
 // Managed Identities
@@ -272,7 +279,8 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
 
 // ACR pull role for tool service MI (allows Container Apps to pull images)
 // Role: AcrPull — 7f951dda-4ed3-4680-a7ca-43fe172d538d
-resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+// Skipped when skipRoleAssignments == true (Contributor-only deploys)
+resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!skipRoleAssignments) {
   name: guid(acr.id, miTools.id, '7f951dda-4ed3-4680-a7ca-43fe172d538d')
   scope: acr
   properties: {
@@ -464,7 +472,8 @@ resource aiModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@202
 
 // Cognitive Services OpenAI User role for tool service MI
 // Role: 5e0bd9bd-7b93-4f28-af87-19fc36ad61bd
-resource aiRoleTools 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+// Skipped when skipRoleAssignments == true (Contributor-only deploys)
+resource aiRoleTools 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!skipRoleAssignments) {
   name: guid(aiServices.id, miTools.id, '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
   scope: aiServices
   properties: {
@@ -478,7 +487,8 @@ resource aiRoleTools 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 // Cognitive Services OpenAI User role for agent MI
-resource aiRoleAgent 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+// Skipped when skipRoleAssignments == true (Contributor-only deploys)
+resource aiRoleAgent 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!skipRoleAssignments) {
   name: guid(aiServices.id, miAgent.id, '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
   scope: aiServices
   properties: {

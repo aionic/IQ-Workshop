@@ -7,6 +7,7 @@
 services:
   sql-server:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64   # SQL Server image is amd64-only; Rosetta required on Apple Silicon
     container_name: iq-sql-server
     environment:
       - ACCEPT_EULA=Y
@@ -29,6 +30,7 @@ services:
     build:
       context: ./services/api-tools
       dockerfile: Dockerfile
+    platform: linux/amd64   # ODBC driver + mssql-tools are amd64-only
     container_name: iq-api-tools
     ports:
       - "8000:8000"

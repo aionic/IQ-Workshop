@@ -48,7 +48,67 @@ flowchart LR
 | Identity | Entra ID + Managed Identity (token auth, no passwords in Azure) |
 | Networking | Dual-mode: public (workshop default) or private (enterprise) |
 
+## Prerequisites
+
+| Tool | Minimum | Install |
+|---|---|---|
+| **Azure CLI** | 2.60+ | [aka.ms/installazurecli](https://aka.ms/installazurecli) |
+| **PowerShell 7+** | 7.0 | [github.com/PowerShell](https://github.com/PowerShell/PowerShell/releases) or `winget install Microsoft.PowerShell` |
+| **Docker Desktop** | 4.x | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
+| **Python** | 3.11+ | [python.org/downloads](https://www.python.org/downloads/) |
+| **uv** | 0.4+ | [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| **Git** | 2.x | [git-scm.com/downloads](https://git-scm.com/downloads) |
+| **sqlcmd** _(Azure seeding)_ | — | [Go sqlcmd](https://github.com/microsoft/go-sqlcmd) (recommended) |
+
+## Deploy to Azure
+
+See [Lab 0 — Environment Setup](docs/labs/lab-0-environment-setup.md) for full instructions
+including all [variables to customize](docs/labs/lab-0-environment-setup.md#variables-you-must-customize).
+
+### Subscription Requirements
+
+| Requirement | Details |
+|---|---|
+| **Azure Roles** | **Owner** on the resource group (or Contributor + RBAC Administrator). **Contributor-only** is supported — see [Lab 0: Contributor-Only Deployment](docs/labs/lab-0-environment-setup.md#contributor-only-deployment) |
+| **SQL Entra Admin** | Your Entra ID user must be set as `entraAdminObjectId` in Bicep parameters |
+| **Resource Providers** | `Microsoft.Sql`, `Microsoft.ContainerRegistry`, `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.ManagedIdentity`, `Microsoft.OperationalInsights`, `Microsoft.Insights`, `Microsoft.Authorization` |
+| **Model Quota** | gpt-4.1-mini capacity in your region (default: 30K TPM in `westus3`) |
+| **Cognitive Services Purge** | If redeploying within 48h of teardown, you need `Cognitive Services Contributor` at subscription scope to purge soft-deleted accounts |
+
+### Required Variables to Change
+
+Before deploying, update `infra/bicep/parameters.dev.json`:
+
+| Parameter | How to find your value |
+|---|---|
+| `entraAdminObjectId` | `az ad signed-in-user show --query id -o tsv` |
+| `entraAdminDisplayName` | Your name or group name matching the Object ID |
+| `uniqueSuffix` | Pick a short string (e.g. your initials + 2 digits: `an42`) to avoid global name collisions. The deploy scripts prompt for this interactively. |
+
+All other parameters have working defaults. See [Lab 0](docs/labs/lab-0-environment-setup.md#variables-you-must-customize) for the complete variable reference.
+
+**Public mode** (workshop default):
+```bash
+az deployment group create \
+  --resource-group rg-iq-lab-dev \
+  --template-file infra/bicep/main.bicep \
+  --parameters infra/bicep/parameters.dev.json
+```
+
+**Private mode** (enterprise — private endpoints, no public access):
+```bash
+az deployment group create \
+  --resource-group rg-iq-lab-dev \
+  --template-file infra/bicep/main.bicep \
+  --parameters infra/bicep/parameters.private.json
+```
+
 ## Quick Start — Local Development
+
+> **Apple Silicon (M1/M2/M3):** Both container images are amd64-only (SQL Server and the ODBC driver
+> have no native arm64 builds). `docker-compose.yml` sets `platform: linux/amd64` so Docker Desktop
+> runs them under Rosetta 2. Ensure **Settings → General → "Use Rosetta for x86_64/amd64 emulation
+> on Apple Silicon"** is enabled, or you will see `exec format error` on startup.
 
 ```bash
 # 1. Clone and configure
@@ -62,10 +122,10 @@ docker compose up
 curl http://localhost:8000/health
 # → {"status": "ok"}
 
-# 4. Install deps + run tests (uv only, never pip)
+# 4. Install deps + run tests (uv creates .venv/ automatically — never pollutes system Python)
 cd services/api-tools
-uv sync --extra dev
-uv run pytest
+uv sync --extra dev    # creates .venv/ and installs all deps
+uv run pytest          # runs inside .venv
 ```
 
 ## Testing
@@ -113,48 +173,6 @@ uv run evals/upload_to_foundry.py --resource-group rg-iq-lab-dev
 ```
 
 See [evals/README.md](evals/README.md) for details.
-
-## Deploy to Azure
-
-See [Lab 0 — Environment Setup](docs/labs/lab-0-environment-setup.md) for full instructions
-including all [variables to customize](docs/labs/lab-0-environment-setup.md#variables-you-must-customize).
-
-### Subscription Requirements
-
-| Requirement | Details |
-|---|---|
-| **Azure Roles** | **Owner** on the resource group (or Contributor + Role Based Access Control Administrator) |
-| **SQL Entra Admin** | Your Entra ID user must be set as `entraAdminObjectId` in Bicep parameters |
-| **Resource Providers** | `Microsoft.Sql`, `Microsoft.ContainerRegistry`, `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.ManagedIdentity`, `Microsoft.OperationalInsights`, `Microsoft.Insights`, `Microsoft.Authorization` |
-| **Model Quota** | gpt-4.1-mini capacity in your region (default: 30K TPM in `westus3`) |
-| **Cognitive Services Purge** | If redeploying within 48h of teardown, you need `Cognitive Services Contributor` at subscription scope to purge soft-deleted accounts |
-
-### Required Variables to Change
-
-Before deploying, update `infra/bicep/parameters.dev.json`:
-
-| Parameter | How to find your value |
-|---|---|
-| `entraAdminObjectId` | `az ad signed-in-user show --query id -o tsv` |
-| `entraAdminDisplayName` | Your name or group name matching the Object ID |
-
-All other parameters have working defaults. See [Lab 0](docs/labs/lab-0-environment-setup.md#variables-you-must-customize) for the complete variable reference.
-
-**Public mode** (workshop default):
-```bash
-az deployment group create \
-  --resource-group rg-iq-lab-dev \
-  --template-file infra/bicep/main.bicep \
-  --parameters infra/bicep/parameters.dev.json
-```
-
-**Private mode** (enterprise — private endpoints, no public access):
-```bash
-az deployment group create \
-  --resource-group rg-iq-lab-dev \
-  --template-file infra/bicep/main.bicep \
-  --parameters infra/bicep/parameters.private.json
-```
 
 ## Workshop Labs
 
