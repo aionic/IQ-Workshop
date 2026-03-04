@@ -5,7 +5,7 @@
 | Component | Technology | Version |
 |---|---|---|
 | Tool Service | Python + FastAPI | 3.12+ / 0.110+ |
-| MCP Server | FastMCP co-hosted at `/mcp` | SSE transport |
+| MCP Server | FastMCP co-hosted at `/mcp` | Streamable HTTP transport |
 | Models | Pydantic v2 | 2.0+ |
 | Database | Azure SQL (deployed) / SQL Server Developer (local) | 2022 |
 | Infrastructure | Bicep | latest |
@@ -111,7 +111,7 @@ grep -rn "TODO(phase-3)" .   # Find all Phase 3 remaining tasks
 - Assert both response status codes and response body structure
 - Run: `cd services/api-tools && uv run pytest`
 
-#### Test file inventory (43 tests)
+#### Test file inventory (56 tests)
 
 | File | Tests | Focus |
 |---|---|---|
@@ -120,6 +120,7 @@ grep -rn "TODO(phase-3)" .   # Find all Phase 3 remaining tasks
 | `test_validation.py` | 11 | Schema validation — missing/wrong fields → 422 Unprocessable Entity |
 | `test_openapi_spec.py` | 8 | OpenAPI spec validity — JSON parseable, paths exist, `$ref` resolution |
 | `test_edge_cases.py` | 10 | Edge cases — empty IDs, null fields, wrong HTTP method, unknown routes |
+| `test_mcp_server.py` | 13 | MCP server — tool registration, JSON-RPC calls, transport security, error handling |
 
 ### Agent Evaluations
 
@@ -133,13 +134,34 @@ grep -rn "TODO(phase-3)" .   # Find all Phase 3 remaining tasks
 - Adding cases: append to `dataset.json` `cases` array with `id`, `category`, `prompt`, `expected_tools`, `assertions`
 - Adding scorers: add function to `scorers.py`, register in `ALL_SCORERS` list
 
+### Foundry Portal Evaluations
+
+- Upload script: `evals/upload_to_foundry.py` (PEP 723, `uv run` directly)
+- Converts local eval results (JSON) → JSONL with conversation-style `response` field
+- Uploads as a Foundry dataset, creates an evaluation with 5 built-in evaluators, starts a run
+- Built-in evaluators used: `tool_call_accuracy`, `task_adherence`, `intent_resolution`, `coherence`, `groundedness`
+- `--no-wait` flag: start run without polling (check results in portal)
+- `--dataset-only` flag: upload dataset without creating an evaluation
+- Results also saved locally to `evals/results/foundry-eval-*.json`
+- Foundry `response` field uses conversation message format (role + content list with tool_call / tool_result types)
+
 ## MCP Server
 
 - **MCP tools are defined in `services/api-tools/app/mcp_server.py`** and co-hosted on the FastAPI app at `/mcp`
 - Tool definitions delegate to the same `db.py` functions as the REST endpoints — no duplicated logic
-- MCP transport is SSE (Server-Sent Events) — compatible with VS Code Copilot, Claude Desktop, etc.
-- When adding a new tool: add to both `app/main.py` (REST) and `app/mcp_server.py` (MCP), sharing `db.py` + `schemas.py`
-- `create_agent.py` supports dual-mode dispatch: `--legacy` for FunctionTool, default for MCPTool via `mcp_server_url`
+- MCP transport is Streamable HTTP (`stateless_http=True, json_response=True`) — compatible with Foundry Agent Service, VS Code Copilot, Claude Desktop, etc.
+- **Primary integration**: Foundry Agent Service connects directly to `/mcp` via `McpTool` — no client-side tool loop needed
+- REST endpoints (`/tools/*`) are deprecated but still functional for backward compatibility
+- When adding a new tool: add to both `app/main.py` (REST, deprecated) and `app/mcp_server.py` (MCP, primary), sharing `db.py` + `schemas.py`
+- `create_agent.py` supports dual-mode: default for `McpTool` registration, `--legacy` for `FunctionTool`
+
+### MCP Deployment Lessons Learned
+
+1. **Trailing-slash redirect**: FastAPI `Mount("/mcp", mcp_app)` returns 307 for `/mcp` → `/mcp/`. Foundry Agent Service does NOT follow redirects. Fix: add ASGI middleware to rewrite `/mcp` → `/mcp/` transparently (`_rewrite_mcp_trailing_slash` in `main.py`).
+2. **DNS rebinding protection (421)**: MCP library v1.26+ includes `TransportSecurityMiddleware` that validates the `Host` header. Behind Container Apps (TLS termination at load balancer), the Host header is the external FQDN which isn't in the default allowed list → 421. Fix: `TransportSecuritySettings(enable_dns_rebinding_protection=False)` passed to `FastMCP()` constructor.
+3. **Proxy headers**: Container Apps forwards `X-Forwarded-*` headers. Uvicorn needs `--proxy-headers --forwarded-allow-ips *` to trust them.
+4. **Accept header required**: When `json_response=True`, the MCP server returns 406 "Not Acceptable" if the client doesn't send `Accept: application/json`. Foundry Agent Service sends this automatically; manual `curl` testing must include it.
+5. **Agent registration**: Use `McpTool(server_label=..., server_url=..., require_approval="always")` with `PromptAgentDefinition`. The server_url must point to the `/mcp` path, not the root.
 
 ## File Routing (MCP additions)
 

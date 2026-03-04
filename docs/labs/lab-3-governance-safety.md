@@ -108,6 +108,7 @@ Summarize ticket TKT-0042
 
 #### Step 8: Test API safe fallback directly
 
+Test via the REST endpoint (safe fallback applies to both REST and MCP paths):
 ```bash
 # With DB down, call the endpoint directly:
 curl -X POST http://localhost:8000/tools/query-ticket-context \

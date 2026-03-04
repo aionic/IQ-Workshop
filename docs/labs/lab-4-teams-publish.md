@@ -32,7 +32,7 @@ Post a summary of the TKT-0042 remediation to Teams
 ```
 
 **What to observe:**
-- The agent calls `postTeamsSummary` with the ticket details
+- The agent calls `post_teams_summary` with the ticket details
 - The trace shows the tool was invoked successfully
 
 #### Step 3: Check the response

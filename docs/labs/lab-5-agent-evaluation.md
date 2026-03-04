@@ -174,12 +174,38 @@ The report contains:
 - [ ] Can identify which categories have the highest/lowest scores
 - [ ] Understand how to use results for regression testing
 
+## Part 7 — Upload Results to Azure AI Foundry
+
+The eval results can be uploaded to Foundry's portal-based evaluation dashboard,
+which runs LLM-judged built-in evaluators (tool call accuracy, task adherence,
+intent resolution, coherence, groundedness).
+
+```bash
+# Upload latest results and run Foundry evaluators
+uv run evals/upload_to_foundry.py --resource-group rg-iq-lab-dev
+
+# Or just kick off the run without waiting for completion
+uv run evals/upload_to_foundry.py -g rg-iq-lab-dev --no-wait
+```
+
+Once complete, open the **Evaluations** tab in the Foundry portal to view:
+- Per-case scores from 5 built-in evaluators
+- Aggregate pass rates and distributions
+- Comparison across runs
+
+### Checkpoint 7
+
+- [ ] Upload completes without errors
+- [ ] Evaluation visible in Foundry portal under **Evaluations**
+- [ ] Can compare Foundry evaluator scores with local scorer results
+
 ## Stretch Goals
 
 1. **Add a multi-turn eval:** Modify a case to test the full triage → approve → execute workflow
 2. **Add a custom scorer:** Create a `score_response_length` scorer in `scorers.py` that fails if the response exceeds 500 characters
 3. **CI integration:** Add eval runner to `.github/workflows/ci.yml` as a post-deployment gate
 4. **Compare models:** Run evals with different model deployments and compare aggregate scores
+5. **Custom Foundry evaluator:** Create a code-based evaluator in Foundry for the safety scorer logic
 
 ## Summary
 

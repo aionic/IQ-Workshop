@@ -1,6 +1,6 @@
 # Phase 5 — MCP Integration (Co-Hosted)
 
-> Status: **In Progress** (Phases A–F done, G remaining)
+> Status: **Complete**
 
 ## Overview
 
@@ -61,7 +61,7 @@ Azure SQL
   - Replaced `FunctionTool` with `MCPTool` from `azure.ai.projects.tools.mcp` (high-level)
   - `MCPTool(server_label="iq-tools", server_url=url+"/mcp", require_approval="always")`
   - `FunctionTool` path kept behind `--legacy` flag
-- [ ] Update `foundry/agent.yaml` tool definitions section to document MCP
+- [x] Update `foundry/agent.yaml` tool definitions section to document MCP
 
 ## Phase D — Client Loop (MCP Approval Flow)
 
@@ -78,7 +78,7 @@ Azure SQL
 - [x] Update `services/api-tools/Dockerfile` — no change needed (same app, new dep)
 - [x] Update `docker-compose.yml` — no new service needed (co-hosted)
 - [x] Verify MCP endpoint reachable at `http://localhost:8000/mcp` (confirmed via route list)
-- [ ] Update Bicep outputs to document MCP URL path (optional)
+- [x] Update Bicep outputs to document MCP URL path (optional)
 
 ## Phase F — Testing & CI
 
@@ -89,15 +89,27 @@ Azure SQL
   - `execute_remediation` without approval returns error
   - `post_teams_summary` roundtrip returns logged=true
   - Error/fallback behavior (13 tests total)
-- [ ] Update CI: MCP smoke test (curl `/mcp` endpoint)
-- [ ] Update smoke-test script for MCP health probe
+- [x] Update CI: MCP smoke test (curl `/mcp` endpoint)
+- [x] Update smoke-test script for MCP health probe
 
 ## Phase G — Documentation & Cleanup
 
-- [ ] Update `docs/architecture.md` with MCP architecture diagram
-- [ ] Update `foundry/agent.yaml` tool definitions commentary
-- [ ] Update lab docs to reference MCP flow
-- [ ] Update `CONVENTIONS.md` file routing table for MCP
+- [x] Update `docs/architecture.md` with MCP architecture diagram
+- [x] Update `foundry/agent.yaml` tool definitions commentary
+- [x] Update lab docs to reference MCP flow
+- [x] Update `CONVENTIONS.md` file routing table for MCP
+
+## Phase H — Deployment & 421 Fix
+
+- [x] Register Prompt Agent (`iq-triage-agent:1`) via `create_agent.py` with `MCPTool`
+- [x] Diagnose 421 "Misdirected Request" from Foundry Agent Service
+- [x] Fix #1: Add ASGI middleware to rewrite `/mcp` → `/mcp/` (avoids Mount 307 redirect with `http://` Location)
+- [x] Fix #2: Disable MCP transport security DNS rebinding protection (`TransportSecuritySettings`)
+- [x] Add `--proxy-headers --forwarded-allow-ips *` to uvicorn CMD in Dockerfile
+- [x] Rebuild image as `iq-tools:v3`, deploy to Container App (`ca-tools-iq-lab-dev--0000003`)
+- [x] Verify MCP endpoint: `POST /mcp/` → 200 with `initialize` response + `tools/list` returns 4 tools
+- [x] All 56 tests pass (13 MCP tests + 43 existing)
+- [x] Clean up temp helper scripts (`_inspect.ps1`, `_test.ps1`, `_deploy.ps1`)
 
 ## Complexity Estimate
 

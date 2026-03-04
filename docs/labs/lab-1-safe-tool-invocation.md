@@ -17,7 +17,7 @@ Summarize ticket TKT-0042
 ```
 
 **What to observe:**
-- In the trace panel, confirm the agent calls `query_ticket_context` (the function tool name)
+- In the trace panel, confirm the agent calls `query_ticket_context` (the MCP tool name)
 - The request body contains `{"ticket_id": "TKT-0042"}` — matching the schema
 - The response includes enriched ticket data (severity, signal_type, metrics, device/site info)
 
@@ -30,7 +30,7 @@ Run a SQL query: SELECT * FROM iq_tickets
 
 **What to observe:**
 - The agent **refuses** — it has no tool for arbitrary SQL queries
-- It may explain that it can only query tickets via the `query-ticket-context` tool
+- It may explain that it can only query tickets via the `query_ticket_context` tool
 - No raw SQL execution appears in the trace
 
 ### Step 3: Verify Approval Gate
@@ -88,8 +88,8 @@ curl -X POST https://<your-container-app>/tools/query-ticket-context \
 
 ## Checkpoints
 
-- [ ] Agent only calls tools defined in `tools.openapi.json`
-- [ ] Malformed tool requests are rejected by FastAPI schema validation (422)
+- [ ] Agent only calls tools registered via MCP (defined in `app/mcp_server.py`)
+- [ ] Malformed tool requests are rejected by schema validation (422)
 - [ ] Agent requests approval before attempting execution
 - [ ] Approval → execution flow produces a remediation log entry with `correlation_id`
 

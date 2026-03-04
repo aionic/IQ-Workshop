@@ -9,8 +9,8 @@
 
 1. Navigate to the [Azure AI Foundry portal](https://ai.azure.com)
 2. Open the **Agents playground**
-3. Select the `iq-foundry-iq-lab` agent
-4. Confirm the agent loads with the system prompt and tool definitions
+3. Select the `iq-triage-agent` agent (new-style Prompt Agent)
+4. Confirm the agent loads with the system prompt and MCP tool definitions
 
 ### 2. Query a Ticket (2 min)
 
@@ -100,7 +100,7 @@ If not → response shows `teams_posted: false, logged: true`.
 ## How to Test in Agents Playground
 
 1. Navigate to [Azure AI Foundry](https://ai.azure.com) → your project → **Agents**
-2. Select the `iq-foundry-iq-lab` agent from the list
+2. Select the `iq-triage-agent` agent from the list
 3. Click **Open in playground** (or use the built-in chat pane)
 4. Start a conversation using prompts from [Playground Prompts](../samples/playground-prompts.md)
 5. Use the **Trace** tab on the right to inspect tool calls, request/response payloads, and timing
@@ -124,7 +124,7 @@ If not → response shows `teams_posted: false, logged: true`.
 
 ### Unit Tests — API Layer (No Azure Required)
 
-Run the full suite of **43 tests** to verify the tool service behavior:
+Run the full suite of **56 tests** to verify the tool service behavior:
 
 ```bash
 cd services/api-tools
@@ -132,7 +132,7 @@ uv sync --extra dev
 uv run pytest -v
 ```
 
-**Expected:** All 43 tests pass in ~2 seconds.
+**Expected:** All 56 tests pass in ~2 seconds.
 
 #### Test file walkthrough
 
@@ -143,6 +143,7 @@ uv run pytest -v
 | `test_validation.py` | 11 | Schema validation — missing/wrong fields → 422 Unprocessable Entity |
 | `test_openapi_spec.py` | 8 | OpenAPI spec — JSON valid, paths exist, `$ref` pointers resolve, auto-generated spec matches |
 | `test_edge_cases.py` | 10 | Edge cases — empty IDs, null fields, wrong HTTP method, correlation ID headers |
+| `test_mcp_server.py` | 13 | MCP server — tool listing, ticket query, approval flow, execution, Teams, error handling |
 
 #### Running specific test categories
 

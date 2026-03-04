@@ -22,6 +22,7 @@ import uuid
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app import db
 from app.logging_config import correlation_id_ctx, get_logger
@@ -32,11 +33,18 @@ logger = get_logger("iq-tools.mcp")
 # FastMCP instance — stateless HTTP with JSON responses for scalability
 # ---------------------------------------------------------------------------
 
+# Explicitly disable DNS rebinding protection — Container Apps terminates
+# TLS at the load-balancer and forwards requests to the container with the
+# external FQDN as Host header.  Without this, recent versions of the MCP
+# library reject every request with 421 "Invalid Host header".
 mcp = FastMCP(
     "IQ Tool Service",
     stateless_http=True,
     json_response=True,
     streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+    ),
 )
 
 

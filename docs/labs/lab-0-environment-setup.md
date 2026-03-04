@@ -84,14 +84,24 @@ curl https://<your-container-app>.azurecontainerapps.io/health
 # → {"status": "ok", "db": "connected"}
 ```
 
-### Step 8: Configure the Foundry agent
+### Step 8: Register the Foundry agent
 
-1. Open [Azure AI Foundry](https://ai.azure.com) → your project → **Agents**
+Register the agent via the SDK (MCP mode is default):
+
+```powershell
+$env:AZURE_AI_PROJECT_ENDPOINT = "https://<ai-services>.services.ai.azure.com/api/projects/<project>"
+$env:TOOL_SERVICE_URL = "https://<your-container-app>.azurecontainerapps.io"
+uv run scripts/create_agent.py
+```
+
+This creates a Foundry Prompt Agent registered with `McpTool` pointing at `$TOOL_SERVICE_URL/mcp`.
+
+Alternatively, configure manually in [Azure AI Foundry](https://ai.azure.com):
+1. Open your project → **Agents**
 2. Create a new agent using the config from `foundry/agent.yaml`
-3. Upload `foundry/tools.openapi.json` as the tool definition
-4. Set the system prompt from `foundry/prompts/system.md`
-5. Set the tool service URL to your Container App FQDN
-6. Test with: "Summarize ticket TKT-0042"
+3. Set the system prompt from `foundry/prompts/system.md`
+4. Add an MCP tool with server URL: `https://<your-container-app>.azurecontainerapps.io/mcp`
+5. Test with: "Summarize ticket TKT-0042"
 
 ---
 
@@ -150,9 +160,9 @@ az acr build \
 curl https://<container-app-internal-fqdn>/health
 ```
 
-### Step 6: Configure Foundry agent
+### Step 6: Register Foundry agent
 
-Same as Track A, Step 8. Use the internal Container App URL for the tool service.
+Same as Track A, Step 8. Use the internal Container App URL as `TOOL_SERVICE_URL`.
 
 ---
 

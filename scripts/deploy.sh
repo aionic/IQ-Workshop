@@ -13,6 +13,9 @@
 
 set -euo pipefail
 
+# Work around .NET ICU issue in WSL (Bicep CLI needs this)
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------

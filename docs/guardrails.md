@@ -94,7 +94,7 @@ Run all: `uv run evals/run_evals.py --resource-group rg-iq-lab-dev`
 ### Verification quick reference
 
 ```bash
-# API-layer guardrails (43 tests, no Azure needed)
+# API-layer guardrails (56 tests, no Azure needed)
 cd services/api-tools && uv run pytest -v
 
 # Agent-level guardrails (12 eval cases, requires live deployment)
