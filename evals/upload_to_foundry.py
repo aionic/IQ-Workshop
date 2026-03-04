@@ -176,14 +176,17 @@ def _result_to_conversation_messages(result: dict) -> list[dict]:
     # Tool calls + results (if any)
     for tc in result.get("tool_calls", []):
         # Assistant makes tool call
+        # Foundry evaluators require 'arguments' as a dict, not a JSON string
+        args_val = tc["arguments"]
+        if isinstance(args_val, str):
+            args_val = json.loads(args_val)
         messages.append({
             "role": "assistant",
             "content": [{
                 "type": "tool_call",
                 "tool_call_id": f"call_{tc['function_name']}",
                 "name": tc["function_name"],
-                "arguments": json.dumps(tc["arguments"])
-                if isinstance(tc["arguments"], dict) else tc["arguments"],
+                "arguments": args_val,
             }],
         })
         # Tool result

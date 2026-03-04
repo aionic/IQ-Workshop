@@ -72,7 +72,7 @@ evaluators in addition to our custom scorers.
 ### What to Explore
 
 - [x] Create `upload_to_foundry.py` script (done — `evals/upload_to_foundry.py`)
-- [ ] Run first Foundry evaluation and verify portal dashboard
+- [x] Run first Foundry evaluation and verify portal dashboard (all 5 evaluators scoring)
 - [ ] Create custom code-based evaluator for our `score_safety` logic
 - [ ] Create custom prompt-based evaluator for IQ-specific triage quality
 - [ ] Set up scheduled eval runs in CI (upload results on each deployment)
@@ -87,27 +87,19 @@ evaluators in addition to our custom scorers.
 
 ## D. Migrate Eval Runner to Responses API
 
-The eval runner (`evals/run_evals.py`) uses the classic Assistants threads/runs API
-(`project_client.agents.threads.create()`, `.runs.create(agent_id=...)`) while the
-agent is now registered as a new-style Prompt Agent using the Responses API
-(`openai_client.responses.create()` / `openai_client.conversations.create()`).
+The eval runner (`evals/run_evals.py`) has been migrated from the classic Assistants
+threads/runs API to the new Responses API (`openai_client.responses.create()` /
+`openai_client.conversations.create()`), matching `chat_agent.py`.
 
-### Current State
+### Completed
 
-- `chat_agent.py` — already migrated to Responses API with `agent_reference` in `extra_body`
-- `run_evals.py` — still uses classic Assistants API; state-loading falls back to `agent_name`
-  but the threads/runs dispatch may fail with new-style agents
-- `upload_to_foundry.py` — may need the same migration
-
-### What to Do
-
-- [ ] Migrate `run_agent_turn()` (legacy) to use `openai_client.responses.create()` with `agent_reference`
-- [ ] Migrate `run_agent_turn_mcp()` to use `openai_client.responses.create()` with MCP approval flow
-- [ ] Replace `project_client.agents.threads.create()` with `openai_client.conversations.create()`
-- [ ] Replace `agent_id` parameter with `agent_name` throughout
-- [ ] Update `upload_to_foundry.py` if it uses the same threads/runs API
-- [ ] Test all 12 eval cases end-to-end
-- [ ] Update `evals/README.md` metadata example
+- [x] Migrate `run_agent_turn()` (legacy) to use `openai_client.responses.create()` with `agent_reference`
+- [x] Migrate `run_agent_turn_mcp()` to use `openai_client.responses.create()` with MCP approval flow
+- [x] Replace `project_client.agents.threads.create()` with `openai_client.conversations.create()`
+- [x] Replace `agent_id` parameter with `agent_name` throughout
+- [x] Verify `upload_to_foundry.py` — uses `openai_client.evals.*` API, no migration needed
+- [x] Test all 12 eval cases end-to-end — **12/12 PASS (100%)**
+- [x] Update `evals/README.md` metadata example (`agent_name` instead of `agent_id`)
 
 ---
 

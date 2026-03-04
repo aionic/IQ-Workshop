@@ -2,18 +2,21 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "azure-ai-projects>=2.0.0b2",
-#     "azure-ai-agents>=1.2.0b2",
 #     "azure-identity>=1.15.0",
+#     "openai>=1.68.0",
 #     "httpx>=0.27",
 # ]
 # ///
 """
 run_evals.py — Run the IQ agent evaluation suite against a live Foundry agent.
 
+Uses the **new** Responses API (``openai_client.responses.create()``) with
+``agent_reference`` — matching the API used by ``chat_agent.py``.
+
 Supports two tool modes (auto-detected from ``.agent-state.json``):
 
 **MCP mode** (default): Foundry Agent Service calls the MCP server directly.
-All tool calls are auto-approved (no human-in-the-loop during automated evals).
+All MCP tool calls are auto-approved (no human-in-the-loop during automated evals).
 
 **Legacy mode**: Client-side HTTP dispatch to FastAPI REST endpoints.
 
@@ -45,17 +48,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from azure.ai.agents.models import (
-    MessageRole,
-    RequiredMcpToolCall,
-    RunStatus,
-    SubmitToolApprovalAction,
-    ToolApproval,
-    ToolOutput,
-)
 from azure.ai.projects import AIProjectClient
-from azure.ai.projects.tools.mcp import MCPTool
 from azure.identity import DefaultAzureCredential
+from openai.types.responses.response_input_param import McpApprovalResponse
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -112,129 +107,109 @@ def _call_tool_service(function_name: str, arguments: dict) -> str:
 
 
 def run_agent_turn_mcp(
-    project_client: AIProjectClient,
-    thread_id: str,
-    agent_id: str,
+    openai_client,
+    agent_name: str,
+    conversation_id: str,
     user_message: str,
-    mcp_tool: MCPTool,
     verbose: bool = False,
 ) -> tuple[str, list[dict]]:
     """MCP mode: send a message, auto-approve all tools, return reply + log.
 
     During automated evals, ALL MCP tool calls are auto-approved so the
     agent can run end-to-end without human intervention.
+
+    Uses the Responses API with ``agent_reference`` (new-style Prompt Agents).
     """
     tool_call_log: list[dict] = []
-    turn_correlation_id = str(uuid.uuid4())
-    mcp_tool.update_headers("X-Correlation-ID", turn_correlation_id)
+    agent_ref = {"agent_reference": {"name": agent_name, "type": "agent_reference"}}
 
-    project_client.agents.messages.create(
-        thread_id=thread_id, role="user", content=user_message,
+    # Send user message via the Responses API
+    response = openai_client.responses.create(
+        conversation=conversation_id,
+        input=user_message,
+        extra_body=agent_ref,
     )
 
-    run = project_client.agents.runs.create(
-        thread_id=thread_id,
-        agent_id=agent_id,
-        tool_resources=mcp_tool.resources,
-    )
-
-    while run.status in (RunStatus.QUEUED, RunStatus.IN_PROGRESS, RunStatus.REQUIRES_ACTION):
-        if run.status == RunStatus.REQUIRES_ACTION:
-            if isinstance(run.required_action, SubmitToolApprovalAction):
-                tool_calls = run.required_action.submit_tool_approval.tool_calls
-                if not tool_calls:
-                    project_client.agents.runs.cancel(thread_id=thread_id, run_id=run.id)
-                    return "[Run cancelled: empty tool-call list]", tool_call_log
-
-                tool_approvals: list[ToolApproval] = []
-                for tc in tool_calls:
-                    if not isinstance(tc, RequiredMcpToolCall):
-                        continue
-                    if verbose:
-                        print(f"    -> MCP auto-approve: {tc.name}({tc.arguments})")
-                    tool_call_log.append({
-                        "function_name": tc.name,
-                        "arguments": tc.arguments,
-                        "output": "(MCP server-side execution)",
-                    })
-                    tool_approvals.append(
-                        ToolApproval(
-                            tool_call_id=tc.id,
-                            approve=True,
-                            headers=mcp_tool.headers,
-                        )
+    # Loop: auto-approve all MCP approval requests until the agent produces a final response
+    while True:
+        approval_inputs: list[McpApprovalResponse] = []
+        for item in response.output:
+            if item.type == "mcp_approval_request":
+                fn_name = item.name
+                if verbose:
+                    print(f"    -> MCP auto-approve: {fn_name}({item.arguments})")
+                # Parse arguments to dict for scorer compatibility
+                fn_args = item.arguments if isinstance(item.arguments, dict) else json.loads(item.arguments or "{}")
+                tool_call_log.append({
+                    "function_name": fn_name,
+                    "arguments": fn_args,
+                    "output": "(MCP server-side execution)",
+                })
+                approval_inputs.append(
+                    McpApprovalResponse(
+                        type="mcp_approval_response",
+                        approve=True,
+                        approval_request_id=item.id,
                     )
+                )
 
-                if tool_approvals:
-                    run = project_client.agents.runs.submit_tool_outputs(
-                        thread_id=thread_id,
-                        run_id=run.id,
-                        tool_approvals=tool_approvals,
-                    )
-                continue
-            else:
-                return f"[Unexpected action: {type(run.required_action).__name__}]", tool_call_log
+        if not approval_inputs:
+            # No more approvals needed — agent is done
+            break
 
-        time.sleep(1)
-        run = project_client.agents.runs.get(thread_id=thread_id, run_id=run.id)
+        # Submit approvals and get next response
+        response = openai_client.responses.create(
+            input=approval_inputs,
+            previous_response_id=response.id,
+            extra_body=agent_ref,
+        )
 
-    if run.status == RunStatus.FAILED:
-        return f"[Run failed: {run.last_error}]", tool_call_log
-    if run.status != RunStatus.COMPLETED:
-        return f"[Run ended with status: {run.status}]", tool_call_log
+    # Check for error states
+    if response.status == "failed":
+        return f"[Response failed: {response.error}]", tool_call_log
+    if response.status == "incomplete":
+        return f"[Response incomplete: {response.incomplete_details}]", tool_call_log
 
-    messages = project_client.agents.messages.list(thread_id=thread_id, order="desc")
-    for msg in messages:
-        if msg.role == MessageRole.AGENT:
-            parts = []
-            for block in msg.content:
-                if hasattr(block, "text"):
-                    parts.append(block.text.value)
-            if parts:
-                return "\n".join(parts), tool_call_log
-    return "[No response]", tool_call_log
+    return response.output_text or "[No response]", tool_call_log
 
 
 # ---------------------------------------------------------------------------
-# Agent turn — Legacy mode (returns response + structured tool call log)
+# Agent turn — Legacy mode (function call dispatch via HTTP)
 # ---------------------------------------------------------------------------
 
 
 def run_agent_turn(
-    project_client: AIProjectClient,
-    thread_id: str,
-    agent_id: str,
+    openai_client,
+    agent_name: str,
+    conversation_id: str,
     user_message: str,
     verbose: bool = False,
 ) -> tuple[str, list[dict]]:
-    """
-    Send a message, handle tool calls, and return:
-      (agent_response_text, list_of_tool_call_records)
+    """Legacy mode: send a message, handle function calls via HTTP, return reply + log.
 
     Each tool call record:
         {"function_name": str, "arguments": dict, "output": str}
     """
     tool_call_log: list[dict] = []
     turn_correlation_id = str(uuid.uuid4())
+    agent_ref = {"agent_reference": {"name": agent_name, "type": "agent_reference"}}
 
-    # Post user message
-    project_client.agents.messages.create(
-        thread_id=thread_id, role="user", content=user_message,
+    # Send user message
+    response = openai_client.responses.create(
+        conversation=conversation_id,
+        input=user_message,
+        extra_body=agent_ref,
     )
 
-    # Start a run
-    run = project_client.agents.runs.create(thread_id=thread_id, agent_id=agent_id)
+    # Loop: handle function calls until the agent produces a final text response
+    while True:
+        function_outputs: list[dict] = []
+        for item in response.output:
+            if item.type == "function_call":
+                fn_name = item.name
+                fn_args = json.loads(item.arguments)
 
-    # Poll until terminal state
-    while run.status in (RunStatus.QUEUED, RunStatus.IN_PROGRESS, RunStatus.REQUIRES_ACTION):
-        if run.status == RunStatus.REQUIRES_ACTION:
-            tool_calls = run.required_action.submit_tool_outputs.tool_calls
-            tool_outputs: list[ToolOutput] = []
-
-            for tc in tool_calls:
-                fn_name = tc.function.name
-                fn_args = json.loads(tc.function.arguments)
-
+                # Inject correlation_id for mutating operations
                 if fn_name in {"request_approval", "execute_remediation", "post_teams_summary"}:
                     if not fn_args.get("correlation_id"):
                         fn_args["correlation_id"] = turn_correlation_id
@@ -248,33 +223,26 @@ def run_agent_turn(
                     "arguments": fn_args,
                     "output": result,
                 })
-                tool_outputs.append(ToolOutput(tool_call_id=tc.id, output=result))
+                function_outputs.append({
+                    "type": "function_call_output",
+                    "call_id": item.call_id,
+                    "output": result,
+                })
 
-            run = project_client.agents.runs.submit_tool_outputs(
-                thread_id=thread_id, run_id=run.id, tool_outputs=tool_outputs,
-            )
-        else:
-            time.sleep(1)
-            run = project_client.agents.runs.get(thread_id=thread_id, run_id=run.id)
+        if not function_outputs:
+            break
 
-    if run.status == RunStatus.FAILED:
-        return f"[Run failed: {run.last_error}]", tool_call_log
+        # Submit function outputs and get next response
+        response = openai_client.responses.create(
+            input=function_outputs,
+            previous_response_id=response.id,
+            extra_body=agent_ref,
+        )
 
-    if run.status != RunStatus.COMPLETED:
-        return f"[Run ended with status: {run.status}]", tool_call_log
+    if response.status == "failed":
+        return f"[Response failed: {response.error}]", tool_call_log
 
-    # Get the latest assistant message
-    messages = project_client.agents.messages.list(thread_id=thread_id, order="desc")
-    for msg in messages:
-        if msg.role == MessageRole.AGENT:
-            parts = []
-            for block in msg.content:
-                if hasattr(block, "text"):
-                    parts.append(block.text.value)
-            if parts:
-                return "\n".join(parts), tool_call_log
-
-    return "[No response]", tool_call_log
+    return response.output_text or "[No response]", tool_call_log
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +350,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Run IQ agent evaluation suite.")
     parser.add_argument("--resource-group", "-g", default="")
-    parser.add_argument("--agent-id", default="")
+    parser.add_argument("--agent-name", default="", help="Agent name (default: from state file).")
     parser.add_argument("--case", "-c", default="", help="Run a single case by ID.")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument(
@@ -396,10 +364,14 @@ def main() -> None:
     state = _load_agent_state()
     project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "")
     _tool_service_url = state.get("tool_service_url", os.environ.get("TOOL_SERVICE_URL", ""))
-    agent_id = args.agent_id or state.get("agent_id", "") or state.get("agent_name", "") or os.environ.get("AGENT_ID", "")
+    agent_name = (
+        args.agent_name
+        or state.get("agent_name", "")
+        or os.environ.get("AGENT_NAME", "iq-triage-agent")
+    )
 
     # Determine tool mode: CLI flag overrides state file
-    tool_mode = "legacy" if args.legacy else state.get("tool_mode", "legacy")
+    tool_mode = "legacy" if args.legacy else state.get("tool_mode", "mcp")
 
     if args.resource_group:
         vals = _resolve_from_bicep(args.resource_group)
@@ -409,11 +381,11 @@ def main() -> None:
     if not project_endpoint:
         print("ERROR: Set AZURE_AI_PROJECT_ENDPOINT or use --resource-group.", file=sys.stderr)
         sys.exit(1)
-    if not _tool_service_url:
-        print("ERROR: Set TOOL_SERVICE_URL or use --resource-group.", file=sys.stderr)
+    if not _tool_service_url and tool_mode == "legacy":
+        print("ERROR: Set TOOL_SERVICE_URL for legacy mode, or use --resource-group.", file=sys.stderr)
         sys.exit(1)
-    if not agent_id:
-        print("ERROR: Set AGENT_ID, use --agent-id, or run create_agent.py first.", file=sys.stderr)
+    if not agent_name:
+        print("ERROR: Set AGENT_NAME, use --agent-name, or run create_agent.py first.", file=sys.stderr)
         sys.exit(1)
 
     # --- Load dataset ---
@@ -425,30 +397,22 @@ def main() -> None:
             print(f"ERROR: Case '{args.case}' not found in dataset.", file=sys.stderr)
             sys.exit(1)
 
-    # --- Construct MCPTool for MCP mode ---
-    mcp_tool: MCPTool | None = None
-    if tool_mode == "mcp":
-        mcp_server_url = state.get("mcp_server_url", f"{_tool_service_url}/mcp")
-        mcp_tool = MCPTool(
-            server_label="iq-tools",
-            server_url=mcp_server_url,
-            require_approval="always",
-        )
-
     print(f"Project:  {project_endpoint}")
     print(f"Tools:    {_tool_service_url}")
-    print(f"Agent:    {agent_id}")
-    print(f"Mode:     {'MCP (auto-approve all)' if mcp_tool else 'Legacy (HTTP dispatch)'}")
+    print(f"Agent:    {agent_name}")
+    print(f"Mode:     {'MCP (auto-approve all)' if tool_mode == 'mcp' else 'Legacy (HTTP dispatch)'}")
     print(f"Cases:    {len(cases)}")
     print()
 
-    # --- Connect ---
+    # --- Connect via AIProjectClient + OpenAI client (Responses API) ---
+    credential = DefaultAzureCredential()
     project_client = AIProjectClient(
         endpoint=project_endpoint,
-        credential=DefaultAzureCredential(),
+        credential=credential,
     )
+    openai_client = project_client.get_openai_client()
 
-    # --- Run each case in its own thread (isolation) ---
+    # --- Run each case in its own conversation (isolation) ---
     results: list[dict] = []
     for i, case in enumerate(cases, 1):
         case_id = case["id"]
@@ -456,17 +420,19 @@ def main() -> None:
 
         print(f"[{i}/{len(cases)}] {case_id}: {prompt[:60]}...")
 
-        # Fresh thread per case (isolation)
-        thread = project_client.agents.threads.create()
+        # Fresh conversation per case (isolation)
+        conversation = openai_client.conversations.create()
 
         t0 = time.time()
-        if mcp_tool:
+        if tool_mode == "mcp":
             agent_response, tool_call_log = run_agent_turn_mcp(
-                project_client, thread.id, agent_id, prompt, mcp_tool, verbose=args.verbose,
+                openai_client, agent_name, conversation.id, prompt,
+                verbose=args.verbose,
             )
         else:
             agent_response, tool_call_log = run_agent_turn(
-                project_client, thread.id, agent_id, prompt, verbose=args.verbose,
+                openai_client, agent_name, conversation.id, prompt,
+                verbose=args.verbose,
             )
         elapsed = round(time.time() - t0, 2)
 
@@ -492,7 +458,7 @@ def main() -> None:
     # --- Report ---
     metadata = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "agent_id": agent_id,  # May be agent_name for new-style Prompt Agents
+        "agent_name": agent_name,
         "project_endpoint": project_endpoint,
         "tool_service_url": _tool_service_url,
         "tool_mode": tool_mode,

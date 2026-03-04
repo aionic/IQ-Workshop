@@ -44,8 +44,17 @@ STATUS.md
 .pytest_cache/
 htmlcov/
 .coverage
+*.cover
+
+# Linter / formatter caches
+.ruff_cache/
+.mypy_cache/
 
 # Eval results (generated, not committed)
 evals/results/
-*.cover
+
+# Bicep compiled ARM template (generated)
 infra/bicep/main.json
+
+# Azurite queue storage data
+__queuestorage__/

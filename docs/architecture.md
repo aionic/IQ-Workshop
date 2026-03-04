@@ -4,9 +4,9 @@
 
 The IQ Foundry Agent Lab demonstrates a production-shaped pattern for AI agent-assisted
 network operations triage. A **Prompt Agent** in Azure AI Foundry uses gpt-4.1-mini with
-Responses API compatible **function tools**. The tool service is **self-hosted on Azure
-Container Apps** — a client program intercepts the agent’s `requires_action` events,
-calls the FastAPI endpoints, and submits results back.
+Responses API and **MCP tools**. The tool service is **self-hosted on Azure
+Container Apps** — the Foundry Agent Service connects directly to the MCP server
+for tool discovery and execution, with human-in-the-loop approval via the Responses API.
 
 The tool service also exposes an **MCP (Model Context Protocol) server** at `/mcp` via
 Streamable HTTP transport, which is the **primary integration path** for the Foundry Agent
@@ -227,11 +227,11 @@ The eval framework tests the agent end-to-end against the live tool service:
 
 ```mermaid
 flowchart LR
-  R[run_evals.py] -->|prompt| A[Foundry Agent\ngpt-4.1-mini]
-  A -->|requires_action| R
-  R -->|HTTP| T[Tool Service\nFastAPI :8000]
+  R[run_evals.py] -->|prompt via\nResponses API| A[Foundry Agent\ngpt-4.1-mini]
+  A -->|MCP tool calls| T[Tool Service\nFastAPI :8000]
   T --> DB[(Azure SQL)]
-  R -->|submit_tool_outputs| A
+  A -->|MCP approval\nrequests| R
+  R -->|approve +\nprevious_response_id| A
   A -->|response| R
   R --> S[scorers.py\n5 scorers]
   S --> J[results/*.json\nJSON report]

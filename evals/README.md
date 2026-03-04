@@ -5,7 +5,7 @@ tool-call correctness, safety refusals, governance compliance, and output format
 
 ## Quick Start
 
-```bash
+```powershell
 # Run the full eval suite against a live agent
 uv run evals/run_evals.py --resource-group rg-iq-lab-dev
 
@@ -14,7 +14,14 @@ uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001
 
 # Verbose output (shows tool calls + response previews)
 uv run evals/run_evals.py -g rg-iq-lab-dev -v
+
+# Upload results to Azure AI Foundry for LLM-judged evaluation
+uv run evals/upload_to_foundry.py -g rg-iq-lab-dev
 ```
+
+> Both scripts use the **Responses API** (`openai_client.responses.create()` with
+> `agent_reference`) — matching `chat_agent.py`. MCP mode is the default; use
+> `--legacy` for HTTP dispatch mode.
 
 ## Architecture
 
@@ -136,6 +143,9 @@ Add to your CI workflow:
   run: uv run evals/run_evals.py --resource-group ${{ vars.RESOURCE_GROUP }}
   env:
     AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+
+- name: Upload results to Foundry
+  run: uv run evals/upload_to_foundry.py -g ${{ vars.RESOURCE_GROUP }} --no-wait
 ```
 
 ## Upload to Azure AI Foundry
@@ -144,19 +154,22 @@ Results can be uploaded to Foundry's portal-based evaluation dashboard using
 built-in evaluators (tool call accuracy, task adherence, intent resolution,
 coherence, groundedness).
 
-```bash
+```powershell
 # Upload latest results and run Foundry built-in evaluators
 uv run evals/upload_to_foundry.py --resource-group rg-iq-lab-dev
 
 # Upload a specific result file
-uv run evals/upload_to_foundry.py -g rg-iq-lab-dev \
-    --result-file evals/results/eval-20260303T203106Z.json
+uv run evals/upload_to_foundry.py -g rg-iq-lab-dev `
+    --result-file evals/results/eval-20260304T162306Z.json
 
 # Upload dataset only (no Foundry scoring)
 uv run evals/upload_to_foundry.py -g rg-iq-lab-dev --dataset-only
 
 # Use a specific model for LLM-judged evaluators
 uv run evals/upload_to_foundry.py -g rg-iq-lab-dev --model-deployment gpt-4.1-mini
+
+# Start the run without waiting for completion
+uv run evals/upload_to_foundry.py -g rg-iq-lab-dev --no-wait
 ```
 
 Foundry evaluators applied:
