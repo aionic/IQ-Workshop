@@ -70,6 +70,20 @@ app = FastAPI(
 )
 app.add_middleware(CorrelationIdMiddleware)
 
+
+@app.middleware("http")
+async def _rewrite_mcp_trailing_slash(request: Request, call_next):
+    """Avoid Starlette Mount's 307 redirect from /mcp → /mcp/.
+
+    Foundry Agent Service does not follow redirects, and the redirect
+    uses http:// (not https://) behind Container Apps TLS termination,
+    which produces a 421 Misdirected Request.  Rewrite internally.
+    """
+    if request.url.path == "/mcp":
+        request.scope["path"] = "/mcp/"
+    return await call_next(request)
+
+
 # Mount MCP server at /mcp (Streamable HTTP transport)
 app.routes.append(Mount("/mcp", app=mcp_server.streamable_http_app()))
 

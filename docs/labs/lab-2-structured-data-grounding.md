@@ -17,7 +17,7 @@ What's the severity and signal type for TKT-0042?
 ```
 
 **What to observe:**
-- The agent calls `queryTicketContext` and receives the full context
+- The agent calls `query_ticket_context` and receives the full context
 - The response cites **exact values** from the seed data (e.g., `severity: High`, `signal_type: jitter_spike`)
 - Cross-check with the database:
   ```sql
@@ -35,7 +35,7 @@ Show me all high-severity tickets at site SITE-02
 ```
 
 **What to observe:**
-- The agent may query multiple tickets individually (one `queryTicketContext` call per ticket)
+- The agent may query multiple tickets individually (one `query_ticket_context` call per ticket)
 - It does **not** dump full table data — each call returns only the scoped 17 fields
 - The response summarizes findings without raw data sprawl
 
@@ -142,10 +142,11 @@ uv run pytest -v tests/test_endpoints.py::test_query_ticket_context_success \
 | Step 3: Hallucination prevention | Agent says "not available" for missing fields | `test_query_ticket_context_not_found` — unknown ticket → 404 (no fabrication) |
 | Step 4: Cross-verify citations | Null metrics handled gracefully | `test_query_ticket_context_null_optional_fields` — `None` metrics don't crash |
 
-### OpenAPI spec tests
+### OpenAPI spec tests (legacy REST validation)
 
-The spec tests verify that the tool service correctly advertises its schema, which is what
-the agent uses to understand available fields:
+The spec tests verify that the deprecated REST tool service correctly advertises its schema.
+With MCP as the primary integration, the agent discovers tools via the MCP protocol at `/mcp`.
+These tests remain to validate the legacy REST surface:
 
 ```bash
 uv run pytest -v tests/test_openapi_spec.py

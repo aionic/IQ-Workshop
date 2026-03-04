@@ -75,26 +75,70 @@ SERVER_FQDN="$SERVER_NAME.database.windows.net"
 ok "Server: $SERVER_FQDN / Database: $DATABASE_NAME"
 
 # ---------------------------------------------------------------------------
-# Acquire Entra token
-# ---------------------------------------------------------------------------
-step "Acquiring Entra token for Azure SQL"
-TOKEN=$(az account get-access-token --resource https://database.windows.net --query accessToken -o tsv 2>/dev/null)
-if [[ -z "$TOKEN" ]]; then
-    echo "ERROR: Failed to get access token. Run 'az login' first." >&2
-    exit 1
-fi
-ok "Token acquired"
-
-# ---------------------------------------------------------------------------
-# Check sqlcmd availability
+# Check sqlcmd availability and detect variant
 # ---------------------------------------------------------------------------
 if ! command -v sqlcmd &>/dev/null; then
     echo "ERROR: sqlcmd not found. Install:" >&2
+    echo "  Go sqlcmd (recommended): https://github.com/microsoft/go-sqlcmd" >&2
     echo "  macOS:  brew install microsoft/mssql-release/mssql-tools18" >&2
     echo "  Linux:  https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-setup-tools" >&2
     exit 1
 fi
-ok "sqlcmd available"
+
+# Detect Go-based sqlcmd vs classic ODBC sqlcmd
+SQLCMD_VERSION=$(sqlcmd --version 2>&1 || sqlcmd -? 2>&1 || echo "")
+if echo "$SQLCMD_VERSION" | grep -qi "Install/Create/Query"; then
+    SQLCMD_TYPE="go"
+    ok "sqlcmd available (Go-based — uses ActiveDirectoryDefault auth)"
+else
+    SQLCMD_TYPE="classic"
+    ok "sqlcmd available (classic ODBC)"
+fi
+
+# ---------------------------------------------------------------------------
+# Acquire Entra token (classic sqlcmd only)
+# ---------------------------------------------------------------------------
+TOKEN=""
+if [[ "$SQLCMD_TYPE" == "classic" ]]; then
+    step "Acquiring Entra token for Azure SQL"
+    TOKEN=$(az account get-access-token --resource https://database.windows.net --query accessToken -o tsv 2>/dev/null)
+    if [[ -z "$TOKEN" ]]; then
+        echo "ERROR: Failed to get access token. Run 'az login' first." >&2
+        exit 1
+    fi
+    ok "Token acquired"
+fi
+
+# ---------------------------------------------------------------------------
+# Helper: run SQL file or query via sqlcmd (handles both variants)
+# ---------------------------------------------------------------------------
+run_sql_file() {
+    local file="$1"
+    if [[ "$SQLCMD_TYPE" == "go" ]]; then
+        sqlcmd -S "$SERVER_FQDN" -d "$DATABASE_NAME" \
+            --authentication-method ActiveDirectoryDefault \
+            -i "$file" 2>&1
+    else
+        sqlcmd -S "$SERVER_FQDN" -d "$DATABASE_NAME" \
+            -G -P "$TOKEN" \
+            -i "$file" \
+            -C 2>&1
+    fi
+}
+
+run_sql_query() {
+    local query="$1"
+    if [[ "$SQLCMD_TYPE" == "go" ]]; then
+        sqlcmd -S "$SERVER_FQDN" -d "$DATABASE_NAME" \
+            --authentication-method ActiveDirectoryDefault \
+            -Q "$query" 2>&1
+    else
+        sqlcmd -S "$SERVER_FQDN" -d "$DATABASE_NAME" \
+            -G -P "$TOKEN" \
+            -Q "$query" \
+            -C 2>&1
+    fi
+}
 
 # ---------------------------------------------------------------------------
 # Run schema.sql
@@ -102,10 +146,7 @@ ok "sqlcmd available"
 SCHEMA_FILE="$DATA_DIR/schema.sql"
 if [[ -f "$SCHEMA_FILE" ]]; then
     step "Applying schema.sql"
-    sqlcmd -S "$SERVER_FQDN" -d "$DATABASE_NAME" \
-        -G -P "$TOKEN" \
-        -i "$SCHEMA_FILE" \
-        -C  # Trust server certificate
+    run_sql_file "$SCHEMA_FILE"
     ok "Schema applied"
 else
     echo "ERROR: schema.sql not found at $SCHEMA_FILE" >&2
@@ -118,10 +159,7 @@ fi
 SEED_FILE="$DATA_DIR/seed.sql"
 if [[ -f "$SEED_FILE" ]]; then
     step "Applying seed.sql"
-    sqlcmd -S "$SERVER_FQDN" -d "$DATABASE_NAME" \
-        -G -P "$TOKEN" \
-        -i "$SEED_FILE" \
-        -C
+    run_sql_file "$SEED_FILE"
     ok "Seed data applied"
 else
     echo "ERROR: seed.sql not found at $SEED_FILE" >&2
@@ -133,11 +171,8 @@ fi
 # ---------------------------------------------------------------------------
 step "Verifying table row counts"
 for TABLE in iq_devices iq_anomalies iq_tickets iq_remediation_log; do
-    COUNT=$(sqlcmd -S "$SERVER_FQDN" -d "$DATABASE_NAME" \
-        -G -P "$TOKEN" \
-        -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.$TABLE" \
-        -h -1 -C 2>/dev/null | tr -d '[:space:]')
-    ok "$TABLE: $COUNT rows"
+    COUNT=$(run_sql_query "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.$TABLE" 2>/dev/null | tr -d '[:space:]' | grep -oE '[0-9]+' | tail -1)
+    ok "$TABLE: ${COUNT:-0} rows"
 done
 
 # ---------------------------------------------------------------------------
@@ -177,10 +212,7 @@ if [[ "$GRANT_PERMISSIONS" == "true" ]]; then
     )
 
     for STMT in "${STATEMENTS[@]}"; do
-        sqlcmd -S "$SERVER_FQDN" -d "$DATABASE_NAME" \
-            -G -P "$TOKEN" \
-            -Q "$STMT" \
-            -C 2>/dev/null || warn "Statement failed (may be OK if already applied): $STMT"
+        run_sql_query "$STMT" 2>/dev/null || warn "Statement failed (may be OK if already applied): $STMT"
     done
     ok "Managed identity permissions granted"
 fi

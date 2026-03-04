@@ -9,25 +9,27 @@ Container Apps** — a client program intercepts the agent’s `requires_action`
 calls the FastAPI endpoints, and submits results back.
 
 The tool service also exposes an **MCP (Model Context Protocol) server** at `/mcp` via
-SSE transport, allowing MCP-compatible clients (VS Code Copilot, Claude Desktop, etc.)
-to discover and invoke tools directly.
+Streamable HTTP transport, which is the **primary integration path** for the Foundry Agent
+Service. Foundry agents connect directly to the MCP server — no client-side tool loop
+needed for tool execution.
 
 **Key architectural decisions**:
 - The agent is a Foundry *Prompt Agent* (LLM-backed), not a hosted/containerized agent
-- Tool calling uses **function tools** (Responses API compatible), not OpenAPI tools
+- Tool calling uses **MCP (Streamable HTTP)** as the primary path; legacy function tools are deprecated
 - The FastAPI tool service runs independently on **Azure Container Apps** (self-hosted)
-- A client-side loop (`chat_agent.py`) bridges the agent and tool service via HTTP
-- MCP Server co-hosted on the same Container App provides an alternative tool discovery path
+- Foundry Agent Service connects directly to the MCP server at `/mcp` — no client-side tool loop needed
+- MCP Server co-hosted on the same Container App provides tool discovery and execution
+- `chat_agent.py` uses Responses API with MCP approval flow (approve/reject tool calls)
 - All deployment scripts ship in both PowerShell and Bash for cross-platform support (Windows/macOS/Linux)
 
 ## Components
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Foundry Prompt Agent | Azure AI Foundry + gpt-4.1-mini | LLM orchestration, function tool definitions |
+| Foundry Prompt Agent | Azure AI Foundry + gpt-4.1-mini | LLM orchestration, MCP tool definitions |
 | AI Services + Project | Microsoft.CognitiveServices/accounts | Hosts model deployment + Foundry project |
-| Tool Service | Python FastAPI on Azure Container Apps | Exposes tool endpoints (query, approve, execute) |
-| MCP Server | FastMCP co-hosted on Tool Service at `/mcp` | SSE-based tool discovery for MCP clients |
+| Tool Service | Python FastAPI on Azure Container Apps | Exposes REST (deprecated) + MCP tool endpoints |
+| MCP Server | FastMCP co-hosted on Tool Service at `/mcp` | Streamable HTTP tool discovery/execution (primary) |
 | Database | Azure SQL (deployed) / SQL Server 2022 (local) | Stores tickets, anomalies, devices, remediation log |
 | Observability | Application Insights + OpenTelemetry | Structured logging with correlation_id |
 | Identity | Entra ID + Managed Identity | Token-based auth, no passwords in Azure |
@@ -48,7 +50,7 @@ flowchart LR
     end
     subgraph CAE["Container Apps Environment"]
       CA[Tool Service<br/>FastAPI :8000]
-      MCP[MCP Server<br/>SSE at /mcp]
+      MCP[MCP Server<br/>Streamable HTTP at /mcp]
     end
     SQL[(Azure SQL<br/>sqldb-iq)]
     ACR[Azure Container Registry]
@@ -58,7 +60,8 @@ flowchart LR
 
   U --> PA
   AIS --> PA
-  PA -->|function tool calls| CA
+  PA -->|MCP Streamable HTTP| MCP
+  MCP --> CA
   CA -->|token auth<br/>id-iq-tools MI| SQL
   CA -->|telemetry| AI
   AI --> LA
@@ -97,7 +100,7 @@ flowchart LR
   end
 
   U --> PA
-  PA -->|function tool calls| CA
+  PA -->|MCP Streamable HTTP| CA
   CA -->|private endpoint| PE_SQL --> SQL
   CA -->|private endpoint| PE_ACR
   ACR --> PE_ACR
@@ -124,35 +127,81 @@ Key rules:
 
 A full triage → remediation cycle follows these steps:
 
+### MCP Flow (Primary)
+
 ```mermaid
 sequenceDiagram
   participant User
   participant Agent as Foundry Agent
-  participant API as Tool Service
+  participant MCP as MCP Server (/mcp)
   participant DB as Azure SQL
   participant AI as App Insights
 
   User->>Agent: "Summarize ticket TKT-0042"
-  Agent->>API: POST /tools/query-ticket-context
-  API->>DB: SELECT (3-table JOIN)
-  DB-->>API: ticket + anomaly + device data
-  API-->>Agent: QueryTicketContextResponse
+  Agent->>MCP: tool_call: query_ticket_context
+  Note over Agent,MCP: Streamable HTTP (auto-approved)
+  MCP->>DB: SELECT (3-table JOIN)
+  DB-->>MCP: ticket + anomaly + device data
+  MCP-->>Agent: QueryTicketContextResponse
   Agent-->>User: Triage summary (3 bullets)
 
   User->>Agent: "Execute remediation"
-  Agent->>API: POST /tools/request-approval
+  Agent->>MCP: tool_call: request_approval
+  Note over Agent,MCP: Auto-approved (read-only)
+  MCP->>DB: INSERT iq_remediation_log (PENDING)
+  MCP-->>Agent: approval_token
+
+  Note over User: Human approves via admin endpoint
+  User->>MCP: POST /admin/approvals/{id}/decide
+  MCP->>DB: UPDATE status=APPROVED
+
+  Agent->>MCP: tool_call: execute_remediation
+  Note over Agent,MCP: Requires human approval (governance)
+  MCP->>DB: Validate APPROVED → INSERT outcome
+  MCP->>DB: UPDATE iq_tickets.status
+  MCP->>AI: Log with correlation_id
+  MCP-->>Agent: ExecuteRemediationResponse
+  Agent-->>User: "Remediation executed"
+```
+
+### Legacy REST Flow (Deprecated)
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Agent as Foundry Agent
+  participant Client as chat_agent.py
+  participant API as Tool Service (REST)
+  participant DB as Azure SQL
+  participant AI as App Insights
+
+  User->>Agent: "Summarize ticket TKT-0042"
+  Agent->>Client: requires_action: query_ticket_context
+  Client->>API: POST /tools/query-ticket-context
+  API->>DB: SELECT (3-table JOIN)
+  DB-->>API: ticket + anomaly + device data
+  API-->>Client: QueryTicketContextResponse
+  Client->>Agent: submit_tool_outputs
+  Agent-->>User: Triage summary (3 bullets)
+
+  User->>Agent: "Execute remediation"
+  Agent->>Client: requires_action: request_approval
+  Client->>API: POST /tools/request-approval
   API->>DB: INSERT iq_remediation_log (PENDING)
-  API-->>Agent: approval_token
+  API-->>Client: approval_token
+  Client->>Agent: submit_tool_outputs
 
   Note over User: Human approves via admin endpoint
   User->>API: POST /admin/approvals/{id}/decide
   API->>DB: UPDATE status=APPROVED
 
-  Agent->>API: POST /tools/execute-remediation
+  Agent->>Client: requires_action: execute_remediation
+  Client->>API: POST /tools/execute-remediation
   API->>DB: Validate APPROVED → INSERT outcome
   API->>DB: UPDATE iq_tickets.status
   API->>AI: Log with correlation_id
-  API-->>Agent: ExecuteRemediationResponse
+  API-->>Client: ExecuteRemediationResponse
+  Client->>Agent: submit_tool_outputs
   Agent-->>User: "Remediation executed"
 ```
 

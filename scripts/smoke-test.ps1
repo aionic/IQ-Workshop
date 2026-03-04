@@ -74,7 +74,7 @@ Write-Host "Target: $BaseUrl" -ForegroundColor White
 # -----------------------------------------------------------------------
 # 1. Health
 # -----------------------------------------------------------------------
-Write-Step "1/7 — GET /health"
+Write-Step "1/8 — GET /health"
 Test-Endpoint "Health check" {
     $r = Invoke-RestMethod -Uri "$BaseUrl/health" -TimeoutSec 10
     if ($r.status -ne "ok") { throw "status=$($r.status)" }
@@ -84,7 +84,7 @@ Test-Endpoint "Health check" {
 # -----------------------------------------------------------------------
 # 2. Query ticket context
 # -----------------------------------------------------------------------
-Write-Step "2/7 — POST /tools/query-ticket-context"
+Write-Step "2/8 — POST /tools/query-ticket-context"
 Test-Endpoint "Query ticket TKT-0042" {
     $body = @{ ticket_id = "TKT-0042" } | ConvertTo-Json
     $r = Invoke-RestMethod -Uri "$BaseUrl/tools/query-ticket-context" `
@@ -97,7 +97,7 @@ Test-Endpoint "Query ticket TKT-0042" {
 # -----------------------------------------------------------------------
 # 3. Query non-existent ticket (404)
 # -----------------------------------------------------------------------
-Write-Step "3/7 — POST /tools/query-ticket-context (404)"
+Write-Step "3/8 — POST /tools/query-ticket-context (404)"
 Test-Endpoint "Query non-existent ticket returns 404" {
     try {
         Invoke-RestMethod -Uri "$BaseUrl/tools/query-ticket-context" `
@@ -115,7 +115,7 @@ Test-Endpoint "Query non-existent ticket returns 404" {
 # -----------------------------------------------------------------------
 # 4. Request approval
 # -----------------------------------------------------------------------
-Write-Step "4/7 — POST /tools/request-approval"
+Write-Step "4/8 — POST /tools/request-approval"
 $correlationId = [guid]::NewGuid().ToString()
 Test-Endpoint "Request approval" {
     $body = @{
@@ -134,7 +134,7 @@ Test-Endpoint "Request approval" {
 # -----------------------------------------------------------------------
 # 5. Decide approval
 # -----------------------------------------------------------------------
-Write-Step "5/7 — POST /admin/approvals/{id}/decide"
+Write-Step "5/8 — POST /admin/approvals/{id}/decide"
 Test-Endpoint "Approve remediation" {
     $body = @{
         decision = "APPROVED"
@@ -148,7 +148,7 @@ Test-Endpoint "Approve remediation" {
 # -----------------------------------------------------------------------
 # 6. Execute remediation
 # -----------------------------------------------------------------------
-Write-Step "6/7 — POST /tools/execute-remediation"
+Write-Step "6/8 — POST /tools/execute-remediation"
 Test-Endpoint "Execute remediation" {
     $body = @{
         ticket_id      = "TKT-0042"
@@ -166,7 +166,7 @@ Test-Endpoint "Execute remediation" {
 # -----------------------------------------------------------------------
 # 7. Post Teams summary
 # -----------------------------------------------------------------------
-Write-Step "7/7 — POST /tools/post-teams-summary"
+Write-Step "7/8 — POST /tools/post-teams-summary"
 Test-Endpoint "Post Teams summary" {
     $body = @{
         ticket_id      = "TKT-0042"
@@ -178,6 +178,26 @@ Test-Endpoint "Post Teams summary" {
     $r = Invoke-RestMethod -Uri "$BaseUrl/tools/post-teams-summary" `
         -Method Post -Body $body -ContentType "application/json" -TimeoutSec 15
     if ($r.logged -ne $true) { throw "logged=$($r.logged)" }
+}
+
+# -----------------------------------------------------------------------
+# 8. MCP server reachable
+# -----------------------------------------------------------------------
+Write-Step "8/8 — POST /mcp (MCP server reachable)"
+Test-Endpoint "MCP server responds" {
+    $body = @{
+        jsonrpc = "2.0"
+        method  = "initialize"
+        id      = 1
+        params  = @{
+            protocolVersion = "2025-03-26"
+            capabilities    = @{}
+            clientInfo      = @{ name = "smoke-test"; version = "1.0" }
+        }
+    } | ConvertTo-Json -Depth 4
+    $r = Invoke-RestMethod -Uri "$BaseUrl/mcp" `
+        -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10
+    if (-not $r.result) { throw "No result in MCP initialize response" }
 }
 
 # -----------------------------------------------------------------------

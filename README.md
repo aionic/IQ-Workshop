@@ -18,20 +18,22 @@ A **Foundry prompt agent** backed by gpt-4.1-mini that:
 
 ```mermaid
 flowchart LR
-  U[User / chat_agent.py] --> A[Foundry Prompt Agent\ngpt-4.1-mini]
-  A -->|requires_action| U
-  U -->|HTTP call| Q[Tool Service on ACA\nFastAPI :8000]
+  U[User / Playground / chat_agent.py] --> A[Foundry Prompt Agent\ngpt-4.1-mini]
+  A -->|MCP tool call| M[MCP Server /mcp\nStreamable HTTP]
+  M --> Q[Tool Service on ACA\nFastAPI :8000]
   Q --> D[(Azure SQL: iq_* tables)]
   Q --> O[App Insights — correlation_id]
-  U -->|submit_tool_outputs| A
   A --> R[Agent response]
 ```
+
+> **Primary path**: Foundry Agent Service connects directly to the MCP server at `/mcp` (Streamable HTTP). The legacy `requires_action` → `submit_tool_outputs` loop via `chat_agent.py --legacy` is kept for backward compatibility.
 
 | Component | Technology |
 |---|---|
 | Agent | Azure AI Foundry Prompt Agent (gpt-4.1-mini, Responses API) |
+| MCP Server | FastMCP co-hosted at `/mcp` (Streamable HTTP, `json_response=True`) |
 | Tool Service | Python FastAPI on Azure Container Apps (self-hosted) |
-| Client Loop | `chat_agent.py` — intercepts requires_action, calls tool service |
+| Client Loop | `chat_agent.py` — Responses API with MCP approval flow (or `--legacy` for classic loop) |
 | Database | Azure SQL (deployed) / SQL Server 2022 Developer (local) |
 | Observability | Application Insights + OpenTelemetry |
 | Identity | Entra ID + Managed Identity (token auth, no passwords in Azure) |
@@ -59,7 +61,7 @@ uv run pytest
 
 ## Testing
 
-### Unit Tests (43 tests, no Azure required)
+### Unit Tests (56 tests, no Azure required)
 
 ```bash
 cd services/api-tools
@@ -73,6 +75,7 @@ uv run pytest -v
 | `test_validation.py` | 11 | Schema validation — bad input → 422 |
 | `test_openapi_spec.py` | 8 | OpenAPI spec correctness |
 | `test_edge_cases.py` | 10 | Edge cases — null fields, wrong methods, unknown routes |
+| `test_mcp_server.py` | 13 | MCP server — tools, JSON-RPC, transport security |
 
 ### Agent Evaluations (12 cases, requires Azure deployment)
 
@@ -93,7 +96,13 @@ uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
 | `tool_use` | 1 | Correct tool selection + arguments |
 | `consistency` | 1 | Same data across queries |
 
-Results are saved to `evals/results/` as timestamped JSON reports. See [evals/README.md](evals/README.md) for details.
+Results are saved to `evals/results/` as timestamped JSON reports. Upload to Foundry's portal dashboard:
+
+```bash
+uv run evals/upload_to_foundry.py --resource-group rg-iq-lab-dev
+```
+
+See [evals/README.md](evals/README.md) for details.
 
 ## Deploy to Azure
 
@@ -128,11 +137,13 @@ az deployment group create \
 
 ## Build Phases
 
-This repo was built in 3 phases. See `phases/` for progress checklists:
+This repo was built in phases. See `phases/` for progress checklists:
 
 - **Phase 1:** Infrastructure + Data (Bicep, SQL, Docker, seed data)
 - **Phase 2:** API Service + Foundry Agent (FastAPI, schemas, agent.yaml)
 - **Phase 3:** Governance + Observability + CI/CD + Docs + Labs
+- **Phase 4:** Polish & Harden (ruff, pyright, 56 tests, pyproject.toml)
+- **Phase 5:** MCP Integration (FastMCP at `/mcp`, McpTool agent registration, Streamable HTTP)
 
 ## Key Design Principles
 

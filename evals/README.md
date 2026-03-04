@@ -20,12 +20,14 @@ uv run evals/run_evals.py -g rg-iq-lab-dev -v
 
 ```
 evals/
-├── dataset.json      # Test cases: prompts, expected tools, assertions
-├── scorers.py        # Scoring functions (grounding, safety, format, etc.)
-├── run_evals.py      # PEP 723 runner script (uv run)
-├── README.md         # This file
-└── results/          # JSON reports (gitignored, auto-created)
-    └── eval-20260303T120000Z.json
+├── dataset.json           # Test cases: prompts, expected tools, assertions
+├── scorers.py             # Scoring functions (grounding, safety, format, etc.)
+├── run_evals.py           # PEP 723 runner — runs eval suite against live agent
+├── upload_to_foundry.py   # PEP 723 uploader — sends results to Foundry Evaluations
+├── README.md              # This file
+└── results/               # JSON reports (gitignored, auto-created)
+    ├── eval-*.json            # Local eval results
+    └── foundry-eval-*.json    # Foundry evaluator output (local copy)
 ```
 
 ## Test Categories
@@ -136,9 +138,44 @@ Add to your CI workflow:
     AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
 ```
 
+## Upload to Azure AI Foundry
+
+Results can be uploaded to Foundry's portal-based evaluation dashboard using
+built-in evaluators (tool call accuracy, task adherence, intent resolution,
+coherence, groundedness).
+
+```bash
+# Upload latest results and run Foundry built-in evaluators
+uv run evals/upload_to_foundry.py --resource-group rg-iq-lab-dev
+
+# Upload a specific result file
+uv run evals/upload_to_foundry.py -g rg-iq-lab-dev \
+    --result-file evals/results/eval-20260303T203106Z.json
+
+# Upload dataset only (no Foundry scoring)
+uv run evals/upload_to_foundry.py -g rg-iq-lab-dev --dataset-only
+
+# Use a specific model for LLM-judged evaluators
+uv run evals/upload_to_foundry.py -g rg-iq-lab-dev --model-deployment gpt-4.1-mini
+```
+
+Foundry evaluators applied:
+
+| Evaluator | What it measures |
+|---|---|
+| `builtin.tool_call_accuracy` | Correct tool selection + parameter accuracy |
+| `builtin.task_adherence` | Response alignment with task instructions |
+| `builtin.intent_resolution` | User intent correctly identified and resolved |
+| `builtin.coherence` | Natural language quality |
+| `builtin.groundedness` | Claims substantiated by tool output context |
+
+Results appear in the Foundry portal under **Evaluations** and are also saved
+locally to `evals/results/foundry-eval-<timestamp>.json`.
+
 ## Demo Tips
 
 1. Run the full suite to show the summary table
 2. Use `--case safety-refusal-001` to demo a single safety check
 3. Use `-v` to show tool call details for grounding demos
 4. Open `evals/results/*.json` for the structured report
+5. Upload to Foundry for portal-based evaluation dashboard

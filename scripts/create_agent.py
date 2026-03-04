@@ -2,24 +2,27 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "azure-ai-projects>=2.0.0b2",
-#     "azure-ai-agents>=1.2.0b2",
 #     "azure-identity>=1.15.0",
 # ]
 # ///
 """
-create_agent.py — Register the IQ triage agent via the Agent Framework v2 SDK.
+create_agent.py — Register the IQ triage agent as a Foundry Prompt Agent.
 
-Architecture: Prompt Agent (LLM in Foundry) + MCP Tools (default) or Function Tools (legacy).
+Uses the **new** Agent API (``AIProjectClient.agents.create_version``) which
+creates agents visible in the new Foundry portal experience — NOT classic
+Assistants-based agents that appear under "Classic Agents".
 
 Default mode (MCP):
-  The agent uses gpt-4.1-mini with an MCP tool definition pointing at the
-  co-hosted MCP server on the FastAPI tool service. The Foundry Agent Service
-  calls the MCP server directly over Streamable HTTP — no client-side tool loop.
+  Creates a ``PromptAgentDefinition`` with ``MCPTool`` pointing at the
+  co-hosted MCP server on the FastAPI tool service.  ``require_approval``
+  is set to ``"always"`` so every tool call surfaces for client-side
+  approval/rejection (the chat client auto-approves safe tools and prompts
+  the operator for ``execute_remediation``).
 
 Legacy mode (--legacy):
-  Falls back to ``FunctionTool`` definitions auto-generated from Python stubs.
-  A client program (chat_agent.py) handles tool execution by calling the FastAPI
-  service on ACA.
+  Creates a ``PromptAgentDefinition`` with ``FunctionTool`` definitions.
+  ``chat_agent.py`` handles tool execution by calling the FastAPI service
+  via HTTP.
 
 Usage (uv auto-installs deps via PEP 723 inline metadata):
 
@@ -46,9 +49,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from azure.ai.agents.models import FunctionTool
 from azure.ai.projects import AIProjectClient
-from azure.ai.projects.tools.mcp import MCPTool
+from azure.ai.projects.models import (
+    FunctionTool,
+    MCPTool,
+    PromptAgentDefinition,
+)
 from azure.identity import DefaultAzureCredential
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -56,90 +62,82 @@ AGENT_NAME = "iq-triage-agent"
 
 
 # ---------------------------------------------------------------------------
-# Tool function stubs — FunctionTool auto-generates JSON Schema from the
-# typed signatures + :param docstrings.  These are *not* executed at
-# registration time; the real implementations live in chat_agent.py where
-# they call the FastAPI service over HTTP.
+# Function tool JSON schemas — used only in legacy mode.
+# These match the FastAPI endpoint signatures in services/api-tools/app/main.py.
 # ---------------------------------------------------------------------------
 
-
-def query_ticket_context(ticket_id: str) -> str:
-    """
-    Query ticket context with linked anomaly and device data.
-    Returns minimal structured fields for a given ticket: ticket metadata,
-    anomaly metrics, and device/site info.
-
-    :param ticket_id: The ticket identifier (e.g. TKT-0042).
-    :return: JSON with ticket metadata, anomaly metrics, and device/site info.
-    """
-    raise NotImplementedError("Stub — executed via HTTP in chat_agent.py")
-
-
-def request_approval(
-    ticket_id: str,
-    proposed_action: str,
-    rationale: str,
-    correlation_id: str = "",
-) -> str:
-    """
-    Request approval for a proposed remediation action.
-    Returns an approval_token and sets status to PENDING.
-
-    :param ticket_id: Ticket to remediate.
-    :param proposed_action: Action to perform (e.g. restart_bgp_sessions).
-    :param rationale: Why this action is appropriate.
-    :param correlation_id: Optional correlation ID for tracing.
-    :return: JSON with remediation_id, approval_token, and status.
-    """
-    raise NotImplementedError("Stub — executed via HTTP in chat_agent.py")
-
-
-def execute_remediation(
-    ticket_id: str,
-    action: str,
-    approved_by: str,
-    approval_token: str,
-    correlation_id: str = "",
-) -> str:
-    """
-    Execute an approved remediation action. Requires a valid, APPROVED
-    approval_token. Logs the outcome and updates ticket status.
-
-    :param ticket_id: The ticket identifier.
-    :param action: The action to execute.
-    :param approved_by: Email of the person who approved.
-    :param approval_token: Token from request_approval (must be APPROVED).
-    :param correlation_id: Correlation ID for tracing.
-    :return: JSON with remediation_id, outcome, and executed_utc.
-    """
-    raise NotImplementedError("Stub — executed via HTTP in chat_agent.py")
-
-
-def post_teams_summary(
-    ticket_id: str,
-    summary: str,
-    action_taken: str,
-    approved_by: str,
-    correlation_id: str = "",
-) -> str:
-    """
-    Post a remediation summary to Microsoft Teams. Returns logged=true and
-    teams_posted=false (stub) unless a Teams webhook is configured.
-
-    :param ticket_id: The ticket identifier.
-    :param summary: Summary text.
-    :param action_taken: Action that was executed.
-    :param approved_by: Approver email.
-    :param correlation_id: Correlation ID for tracing.
-    :return: JSON with teams_posted, logged, and correlation_id.
-    """
-    raise NotImplementedError("Stub — executed via HTTP in chat_agent.py")
-
-
-# Build tool definitions from the stub functions
-TOOL_FUNCTIONS = FunctionTool(
-    functions={query_ticket_context, request_approval, execute_remediation, post_teams_summary}
-)
+LEGACY_TOOLS: list[FunctionTool] = [
+    FunctionTool(
+        name="query_ticket_context",
+        description=(
+            "Query ticket context with linked anomaly and device data. "
+            "Returns minimal structured fields for a given ticket."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ticket_id": {
+                    "type": "string",
+                    "description": "The ticket identifier (e.g. TKT-0042).",
+                },
+            },
+            "required": ["ticket_id"],
+        },
+    ),
+    FunctionTool(
+        name="request_approval",
+        description=(
+            "Request approval for a proposed remediation action. "
+            "Returns an approval_token and sets status to PENDING."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ticket_id": {"type": "string", "description": "Ticket to remediate."},
+                "proposed_action": {"type": "string", "description": "Action to perform (e.g. restart_bgp_sessions)."},
+                "rationale": {"type": "string", "description": "Why this action is appropriate."},
+                "correlation_id": {"type": "string", "description": "Optional correlation ID for tracing."},
+            },
+            "required": ["ticket_id", "proposed_action", "rationale"],
+        },
+    ),
+    FunctionTool(
+        name="execute_remediation",
+        description=(
+            "Execute an approved remediation action. Requires a valid, APPROVED "
+            "approval_token. Logs the outcome and updates ticket status."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ticket_id": {"type": "string", "description": "The ticket identifier."},
+                "action": {"type": "string", "description": "The action to execute."},
+                "approved_by": {"type": "string", "description": "Email of the person who approved."},
+                "approval_token": {"type": "string", "description": "Token from request_approval (must be APPROVED)."},
+                "correlation_id": {"type": "string", "description": "Correlation ID for tracing."},
+            },
+            "required": ["ticket_id", "action", "approved_by", "approval_token"],
+        },
+    ),
+    FunctionTool(
+        name="post_teams_summary",
+        description=(
+            "Post a remediation summary to Microsoft Teams. Returns logged=true "
+            "and teams_posted=false (stub) unless a Teams webhook is configured."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ticket_id": {"type": "string", "description": "The ticket identifier."},
+                "summary": {"type": "string", "description": "Summary text."},
+                "action_taken": {"type": "string", "description": "Action that was executed."},
+                "approved_by": {"type": "string", "description": "Approver email."},
+                "correlation_id": {"type": "string", "description": "Correlation ID for tracing."},
+            },
+            "required": ["ticket_id", "summary", "action_taken", "approved_by"],
+        },
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -226,17 +224,10 @@ def main() -> None:
     # Load system prompt
     system_prompt = (REPO_ROOT / "foundry" / "prompts" / "system.md").read_text()
 
-    # Connect via AIProjectClient (Agent Framework v2 entry point)
-    project_client = AIProjectClient(
-        endpoint=project_endpoint,
-        credential=DefaultAzureCredential(),
-    )
-
     # --- Build tool definitions: MCP (default) or legacy FunctionTool ---
     if args.legacy:
         print("Mode: Legacy (FunctionTool)")
-        tools = TOOL_FUNCTIONS.definitions
-        tool_resources = None
+        tools = LEGACY_TOOLS
     else:
         print("Mode: MCP (Streamable HTTP)")
         mcp_server_url = f"{tool_service_url}/mcp"
@@ -245,32 +236,43 @@ def main() -> None:
             server_url=mcp_server_url,
             require_approval="always",
         )
-        tools = mcp_tool.definitions
-        tool_resources = mcp_tool.resources
+        tools = [mcp_tool]
         print(f"  MCP URL: {mcp_server_url}")
         print(f"  Approval: always (human-in-the-loop for execute_remediation)")
 
-    # Create prompt agent
-    agent = project_client.agents.create_agent(
-        model=model_deployment,
-        name=AGENT_NAME,
-        instructions=system_prompt,
-        temperature=0.3,
-        tools=tools,
-        tool_resources=tool_resources,
+    # Connect via AIProjectClient (new Agent API)
+    credential = DefaultAzureCredential()
+    project_client = AIProjectClient(
+        endpoint=project_endpoint,
+        credential=credential,
     )
-    print(f"Agent created: {agent.id}")
-    print(f"  Name:  {agent.name}")
-    print(f"  Model: {agent.model}")
+
+    # Create prompt agent version (new-style — visible in Foundry portal)
+    agent = project_client.agents.create_version(
+        agent_name=AGENT_NAME,
+        description="IQ network triage agent — triages anomalies and proposes safe remediations.",
+        definition=PromptAgentDefinition(
+            model=model_deployment,
+            instructions=system_prompt,
+            tools=tools,
+            temperature=0.3,
+        ),
+    )
+    print()
+    print(f"Agent created (new-style Prompt Agent):")
+    print(f"  Name:    {agent.name}")
+    print(f"  Version: {agent.version}")
+    print(f"  ID:      {agent.id}")
     print()
 
-    # Save agent ID + tool service URL for use by chat_agent.py
+    # Save agent state for use by chat_agent.py
     state = {
-        "agent_id": agent.id,
+        "agent_name": agent.name,
+        "agent_version": agent.version,
         "tool_service_url": tool_service_url,
         "tool_mode": "legacy" if args.legacy else "mcp",
     }
-    if not args.legacy and tool_resources:
+    if not args.legacy:
         state["mcp_server_url"] = f"{tool_service_url}/mcp"
     state_path = REPO_ROOT / ".agent-state.json"
     state_path.write_text(json.dumps(state, indent=2))
@@ -279,7 +281,7 @@ def main() -> None:
     print("Run the agent interactively:")
     print(f"  uv run scripts/chat_agent.py --resource-group {args.resource_group or '<rg>'}")
     print()
-    print("Or test in the Foundry Agents playground:")
+    print("Or chat in the Foundry Agents playground:")
     print("  https://ai.azure.com")
 
 

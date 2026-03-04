@@ -104,6 +104,47 @@
 - **Missing env vars:** Compare required env vars in `agent.yaml` against what's configured on the Container App
 - **Port mismatch:** Container App expects port 8000 (set in Bicep `targetPort: 8000`)
 
+## MCP Server Issues
+
+### 421 "Misdirected Request" or "Invalid Host header"
+
+**Symptom:** Foundry Agent Service reports "Error retrieving tool list from MCP server" with HTTP 421.
+
+**Root cause #1 — Trailing slash redirect:**
+Starlette's `Mount("/mcp", ...)` issues a 307 redirect from `/mcp` → `/mcp/`. The `Location` header uses `http://` (not `https://`) because Container Apps terminates TLS at the load balancer. Foundry doesn't follow redirects, and the HTTP scheme causes a protocol mismatch.
+
+**Fix:** The middleware `_rewrite_mcp_trailing_slash` in `app/main.py` rewrites `/mcp` → `/mcp/` internally before the Mount handler. This is already applied.
+
+**Root cause #2 — MCP transport security DNS rebinding protection:**
+MCP library ≥1.26.0 added `TransportSecurityMiddleware` (`mcp/server/transport_security.py`) that validates the `Host` header against an `allowed_hosts` list. When running behind a reverse proxy (Container Apps), the external FQDN isn't in the default list, so every request is rejected with 421.
+
+**Fix:** Pass `transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)` to the `FastMCP()` constructor in `app/mcp_server.py`. This is already applied.
+
+**Solutions if it reoccurs:**
+- Verify the image is `v3` or later: `az containerapp show -n ca-tools-iq-lab-dev -g rg-iq-lab-dev --query "properties.template.containers[0].image"`
+- Check MCP library version in the container: should be `mcp>=1.26.0` in `requirements.txt`
+- Test directly: `curl -s -X POST https://<fqdn>/mcp/ -H "Content-Type: application/json" -H "Accept: application/json" -d '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'`
+- Expected: HTTP 200 with JSON-RPC response containing `serverInfo.name: "IQ Tool Service"`
+
+### 406 "Not Acceptable" from MCP endpoint
+
+**Symptom:** `POST /mcp/` returns 406 with `"Client must accept application/json"`.
+
+**Cause:** The MCP server is configured with `json_response=True`, which requires clients to send `Accept: application/json`.
+
+**Fix:** This is expected behavior — Foundry Agent Service sends the correct header. If testing with curl, add `-H "Accept: application/json"`.
+
+### MCP tools not discovered by agent
+
+**Symptom:** Agent loads but reports "no tools available" or doesn't call any tools.
+
+**Solutions:**
+- Verify the MCP URL in agent registration matches the deployed endpoint: `https://<fqdn>/mcp`
+- Test tool listing: `curl -s -X POST https://<fqdn>/mcp/ -H "Content-Type: application/json" -H "Accept: application/json" -d '{"jsonrpc":"2.0","method":"tools/list","id":2,"params":{}}'`
+- Should return 4 tools: `query_ticket_context`, `request_approval`, `execute_remediation`, `post_teams_summary`
+- Check `.agent-state.json` has `mcp_server_url` pointing to the correct FQDN
+- If the agent was registered with the wrong MCP URL, re-run `uv run scripts/create_agent.py`
+
 ## Foundry Agent Issues
 
 ### Agent not finding tools
@@ -146,7 +187,7 @@
 **Solutions:**
 - Ensure you're in the correct directory: `cd services/api-tools`
 - Install dev dependencies: `uv sync --extra dev`
-- All 43 tests mock the DB layer — no database connection needed
+- All 56 tests mock the DB layer — no database connection needed
 - If import errors occur, verify `tests/conftest.py` exists (it adds the parent directory to `sys.path`)
 
 ### Specific test troubleshooting

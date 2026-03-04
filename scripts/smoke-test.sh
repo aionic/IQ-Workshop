@@ -84,7 +84,7 @@ echo "Target: $BASE_URL"
 # ---------------------------------------------------------------------------
 # 1. Health
 # ---------------------------------------------------------------------------
-step "1/7 — GET /health"
+step "1/8 — GET /health"
 test_endpoint "Health check" bash -c "
     resp=\$(curl -fsS '$BASE_URL/health' --max-time 10)
     echo \"\$resp\" | grep -q '\"ok\"'
@@ -93,7 +93,7 @@ test_endpoint "Health check" bash -c "
 # ---------------------------------------------------------------------------
 # 2. Query ticket context
 # ---------------------------------------------------------------------------
-step "2/7 — POST /tools/query-ticket-context"
+step "2/8 — POST /tools/query-ticket-context"
 test_endpoint "Query ticket TKT-0042" bash -c "
     resp=\$(curl -fsS -X POST '$BASE_URL/tools/query-ticket-context' \
         -H 'Content-Type: application/json' \
@@ -104,7 +104,7 @@ test_endpoint "Query ticket TKT-0042" bash -c "
 # ---------------------------------------------------------------------------
 # 3. Query non-existent ticket (404)
 # ---------------------------------------------------------------------------
-step "3/7 — POST /tools/query-ticket-context (404)"
+step "3/8 — POST /tools/query-ticket-context (404)"
 test_endpoint "Query non-existent ticket returns 404" bash -c "
     code=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$BASE_URL/tools/query-ticket-context' \
         -H 'Content-Type: application/json' \
@@ -117,7 +117,7 @@ test_endpoint "Query non-existent ticket returns 404" bash -c "
 # ---------------------------------------------------------------------------
 CORRELATION_ID=$(uuidgen 2>/dev/null || python3 -c "import uuid; print(uuid.uuid4())")
 
-step "4/7 — POST /tools/request-approval"
+step "4/8 — POST /tools/request-approval"
 APPROVAL_RESP=$(curl -fsS -X POST "$BASE_URL/tools/request-approval" \
     -H "Content-Type: application/json" \
     -d "{
@@ -141,7 +141,7 @@ fi
 # ---------------------------------------------------------------------------
 # 5. Decide approval
 # ---------------------------------------------------------------------------
-step "5/7 — POST /admin/approvals/{id}/decide"
+step "5/8 — POST /admin/approvals/{id}/decide"
 test_endpoint "Approve remediation" bash -c "
     resp=\$(curl -fsS -X POST '$BASE_URL/admin/approvals/$REMEDIATION_ID/decide' \
         -H 'Content-Type: application/json' \
@@ -152,7 +152,7 @@ test_endpoint "Approve remediation" bash -c "
 # ---------------------------------------------------------------------------
 # 6. Execute remediation
 # ---------------------------------------------------------------------------
-step "6/7 — POST /tools/execute-remediation"
+step "6/8 — POST /tools/execute-remediation"
 test_endpoint "Execute remediation" bash -c "
     resp=\$(curl -fsS -X POST '$BASE_URL/tools/execute-remediation' \
         -H 'Content-Type: application/json' \
@@ -167,9 +167,9 @@ test_endpoint "Execute remediation" bash -c "
 "
 
 # ---------------------------------------------------------------------------
-# 7. Post Teams summary
+# 7/8 — POST /tools/post-teams-summary
 # ---------------------------------------------------------------------------
-step "7/7 — POST /tools/post-teams-summary"
+step "7/8 — POST /tools/post-teams-summary"
 test_endpoint "Post Teams summary" bash -c "
     resp=\$(curl -fsS -X POST '$BASE_URL/tools/post-teams-summary' \
         -H 'Content-Type: application/json' \
@@ -181,6 +181,19 @@ test_endpoint "Post Teams summary" bash -c "
             \"correlation_id\": \"$CORRELATION_ID\"
         }' --max-time 15)
     echo \"\$resp\" | grep -q '\"logged\"'
+"
+
+# ---------------------------------------------------------------------------
+# 8/8 — POST /mcp (MCP server health)
+# ---------------------------------------------------------------------------
+step "8/8 — POST /mcp (MCP server reachable)"
+test_endpoint "MCP server responds" bash -c "
+    code=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$BASE_URL/mcp' \
+        -H 'Content-Type: application/json' \
+        -H 'Accept: application/json' \
+        -d '{\"jsonrpc\": \"2.0\", \"method\": \"initialize\", \"id\": 1, \"params\": {\"protocolVersion\": \"2025-03-26\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"smoke-test\", \"version\": \"1.0\"}}}' \
+        --max-time 10)
+    [[ \"\$code\" == '200' ]]
 "
 
 # ---------------------------------------------------------------------------
