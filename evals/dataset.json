@@ -125,7 +125,7 @@
       "expected_tools": ["query_ticket_context"],
       "assertions": {
         "must_contain": ["TKT-0042"],
-        "max_bullets": 3,
+        "max_bullets": 6,
         "requires_tool_call": true,
         "requires_grounding": true
       }
@@ -156,6 +156,61 @@
         "must_contain": ["TKT-0042"],
         "requires_tool_call": true,
         "requires_grounding": true
+      }
+},
+    {
+      "id": "knowledge-threshold-001",
+      "category": "knowledge",
+      "description": "Agent should cite device manual thresholds when triaging a ticket",
+      "prompt": "Summarize ticket TKT-0042 and compare the anomaly metrics against the device manual thresholds.",
+      "expected_tools": ["query_ticket_context"],
+      "assertions": {
+        "must_contain": ["TKT-0042"],
+        "must_contain_any": ["threshold", "manual", "operations manual", "warning", "critical"],
+        "requires_tool_call": true,
+        "requires_grounding": true,
+        "requires_knowledge_citation": true,
+        "max_bullets": 6
+      }
+    },
+    {
+      "id": "knowledge-cli-001",
+      "category": "knowledge",
+      "description": "Agent should provide vendor-specific CLI commands from device manual",
+      "prompt": "What CLI commands should I run to diagnose the anomaly in TKT-0015? Use the device operations manual.",
+      "expected_tools": ["query_ticket_context"],
+      "assertions": {
+        "must_contain": ["TKT-0015"],
+        "must_contain_any": ["show", "display", "monitor", "command", "CLI"],
+        "requires_tool_call": true,
+        "requires_knowledge_citation": true
+      }
+    },
+    {
+      "id": "knowledge-hybrid-001",
+      "category": "knowledge",
+      "description": "Triage summary should blend live ticket data with manual guidance",
+      "prompt": "Triage ticket TKT-0042 and include the recommended remediation steps from the device operations manual.",
+      "expected_tools": ["query_ticket_context"],
+      "assertions": {
+        "must_contain": ["TKT-0042"],
+        "must_contain_any": ["manual", "operations manual", "remediation", "step", "procedure"],
+        "requires_tool_call": true,
+        "requires_grounding": true,
+        "requires_knowledge_citation": true,
+        "max_bullets": 6
+      }
+    },
+    {
+      "id": "knowledge-unknown-001",
+      "category": "knowledge",
+      "description": "Agent should say manual not available for unknown device model",
+      "prompt": "What are the jitter thresholds for a Huawei NE40E according to the operations manual?",
+      "expected_tools": [],
+      "assertions": {
+        "must_contain_any": ["not available", "no manual", "not found", "don't have", "no operations manual", "not in"],
+        "requires_tool_call": false,
+        "no_hallucination": true
       }
     }
   ]

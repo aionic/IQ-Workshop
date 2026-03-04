@@ -144,7 +144,7 @@ sequenceDiagram
   MCP->>DB: SELECT (3-table JOIN)
   DB-->>MCP: ticket + anomaly + device data
   MCP-->>Agent: QueryTicketContextResponse
-  Agent-->>User: Triage summary (3 bullets)
+  Agent-->>User: Triage summary (≤6 bullets)
 
   User->>Agent: "Execute remediation"
   Agent->>MCP: tool_call: request_approval
@@ -183,7 +183,7 @@ sequenceDiagram
   DB-->>API: ticket + anomaly + device data
   API-->>Client: QueryTicketContextResponse
   Client->>Agent: submit_tool_outputs
-  Agent-->>User: Triage summary (3 bullets)
+  Agent-->>User: Triage summary (≤6 bullets)
 
   User->>Agent: "Execute remediation"
   Agent->>Client: requires_action: request_approval
@@ -221,6 +221,56 @@ The `networkMode` parameter in `main.bicep` controls the deployment topology:
 
 Both modes use managed identity for all authentication — no passwords in any Azure deployment.
 
+## Knowledge Grounding — Device Manuals
+
+The agent uses **hybrid grounding**: structured data from MCP tools (live ticket/anomaly/device
+fields) combined with unstructured knowledge from device operations manuals indexed in a
+Foundry vector store.
+
+### Knowledge Sources
+
+| Source | Type | Content |
+|---|---|---|
+| 7 device manuals (`data/manuals/*.md`) | Vector store (file_search) | Per-model thresholds, CLI commands, remediation steps, escalation criteria |
+| `docs/guardrails.md` | Vector store (file_search) | Agent behavioral rules |
+| `docs/runbook.md` | Vector store (file_search) | Standard operating procedures |
+
+### Registration Flow
+
+```mermaid
+sequenceDiagram
+  participant Script as create_agent.py
+  participant Foundry as AI Foundry
+  participant VS as Vector Store
+  participant Agent as Prompt Agent
+
+  Script->>Foundry: files.upload() × 9 files
+  Foundry-->>Script: file_ids[]
+  Script->>Foundry: vector_stores.create(file_ids)
+  Foundry->>VS: Index files (chunking + embedding)
+  Foundry-->>Script: vector_store_id
+  Script->>Foundry: agents.create_version(tools=[MCPTool, FileSearchTool])
+  Foundry-->>Script: agent_version
+```
+
+### Hybrid Grounding at Runtime
+
+```mermaid
+flowchart LR
+  U[User: Triage TKT-0042] --> A[Foundry Agent]
+  A -->|MCP tool call| T[query_ticket_context]
+  T --> D[(Azure SQL)]
+  D -->|model: Nokia 7750 SR\nsignal: bgp_instability| T
+  T -->|structured data| A
+  A -->|file_search| VS[(Vector Store\nDevice Manuals)]
+  VS -->|Nokia 7750 SR manual\nBGP section| A
+  A -->|Grounded response:\ndata + manual guidance| U
+```
+
+The agent cites both sources in triage summaries — metric values from tools and
+thresholds/CLI commands from the device manual. The `--no-knowledge` flag on
+`create_agent.py` disables knowledge upload for baseline comparison.
+
 ## Evaluation Architecture
 
 The eval framework tests the agent end-to-end against the live tool service:
@@ -233,7 +283,7 @@ flowchart LR
   A -->|MCP approval\nrequests| R
   R -->|approve +\nprevious_response_id| A
   A -->|response| R
-  R --> S[scorers.py\n5 scorers]
+  R --> S[scorers.py\n6 scorers]
   S --> J[results/*.json\nJSON report]
 ```
 
@@ -244,3 +294,4 @@ flowchart LR
 | `score_format` | Bullet count and structure compliance |
 | `score_safety` | Refusals, hallucination prevention, approval mentions |
 | `score_tool_call_args` | Correct function arguments (ticket_id, etc.) |
+| `score_knowledge` | Device manual citations, threshold references, CLI commands |

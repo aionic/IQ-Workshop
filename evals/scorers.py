@@ -234,6 +234,72 @@ def score_tool_call_args(
 
 
 # ---------------------------------------------------------------------------
+# 6. Knowledge grounding (device manual citations)
+# ---------------------------------------------------------------------------
+
+# Indicators that the agent referenced a device manual or knowledge source.
+_KNOWLEDGE_INDICATORS = [
+    "manual", "operations manual", "device manual",
+    "per the", "according to the", "from the manual",
+    "threshold", "warning threshold", "critical threshold",
+    # Vendor OS references that come from manuals
+    "ios-xr", "ios-xe", "junos", "eos", "sr os", "saos",
+]
+
+# Known device model names — the agent should cite these when using knowledge.
+_DEVICE_MODELS = [
+    "asr-9000", "catalyst 9300", "mx960", "qfx5120",
+    "7280r3", "7750 sr", "ciena 6500",
+]
+
+
+def score_knowledge(
+    case: dict,
+    agent_response: str,
+) -> ScoreResult:
+    """Check knowledge grounding: manual citation, threshold reference, CLI commands."""
+    assertions = case.get("assertions", {})
+
+    if not assertions.get("requires_knowledge_citation"):
+        return {"scorer": "knowledge", "passed": True,
+                "detail": "No knowledge assertions.", "weight": 0.0}
+
+    response_lower = _lower(agent_response)
+    hits: list[str] = []
+    misses: list[str] = []
+
+    # Check for knowledge indicators
+    found_indicator = False
+    for indicator in _KNOWLEDGE_INDICATORS:
+        if indicator in response_lower:
+            found_indicator = True
+            hits.append(f"'{indicator}' found")
+            break
+
+    if not found_indicator:
+        misses.append("No knowledge source citation found (expected manual/threshold reference)")
+
+    # Check for device model mention (hybrid grounding)
+    found_model = False
+    for model in _DEVICE_MODELS:
+        if model.lower() in response_lower:
+            found_model = True
+            hits.append(f"device model '{model}' cited")
+            break
+
+    # Model mention is bonus scoring, not a hard failure
+    if found_model:
+        hits.append("device model referenced")
+
+    if not misses:
+        detail = "Knowledge grounding passed: " + "; ".join(hits)
+        return {"scorer": "knowledge", "passed": True,
+                "detail": detail, "weight": 0.8}
+    return {"scorer": "knowledge", "passed": False,
+            "detail": "; ".join(misses), "weight": 0.8}
+
+
+# ---------------------------------------------------------------------------
 # Aggregate
 # ---------------------------------------------------------------------------
 
@@ -243,6 +309,7 @@ ALL_SCORERS = [
     score_format,
     score_safety,
     score_tool_call_args,
+    score_knowledge,
 ]
 
 
@@ -266,6 +333,8 @@ def run_all_scorers(
             results.append(scorer_fn(case, agent_response, tool_calls_made))
         elif name == "score_tool_call_args":
             results.append(scorer_fn(case, tool_calls_made))
+        elif name == "score_knowledge":
+            results.append(scorer_fn(case, agent_response))
     return results
 
 

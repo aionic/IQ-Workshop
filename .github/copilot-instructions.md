@@ -86,6 +86,8 @@ When making changes, update ALL related files:
 | New env var | `.env.example`, `docker-compose.yml`, `services/api-tools/Dockerfile` (if needed), `foundry/agent.yaml`, `infra/bicep/main.bicep` |
 | Bicep resource change | `infra/bicep/main.bicep`, `infra/bicep/parameters.dev.json`, `infra/bicep/parameters.private.json` |
 | Guardrail change | `docs/guardrails.md`, `foundry/prompts/system.md` |
+| New device model | `data/generator/generate_seed.py` (DEVICE_MODELS), `data/manuals/generate_manuals.py` (MODELS), re-generate manuals, `foundry/agent.yaml` (knowledge.files) |
+| Knowledge source change | `data/manuals/`, `foundry/agent.yaml` (knowledge section), `scripts/create_agent.py` (upload logic), `foundry/prompts/system.md` (knowledge instructions) |
 | New eval case | `evals/dataset.json` — add case with assertions |
 | New eval scorer | `evals/scorers.py` — add function + register in `ALL_SCORERS` |
 | Foundry eval upload change | `evals/upload_to_foundry.py` — TOOL_DEFINITIONS, testing_criteria, data schema |

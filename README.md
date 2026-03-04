@@ -4,6 +4,15 @@ A Microsoft Foundry / Azure AI Foundry agent workshop demonstrating production-s
 patterns for AI-assisted network operations triage. The tool service is **self-hosted
 on Azure Container Apps** — Foundry provides the LLM, your code controls everything else.
 
+> **Beta Tooling Notice:** This solution uses pre-release / beta SDKs and services
+> including `azure-ai-projects` (2.0.0b2+), the Foundry Agent Service Responses API,
+> and MCP tool integration via `MCPTool`. These APIs are under active development —
+> parameter names, approval flow behavior, and SDK surface area may change between
+> releases. Pin your dependencies and review the
+> [Foundry Agent Service changelog](https://learn.microsoft.com/azure/ai-foundry/agents/overview)
+> when upgrading. See [MCP Approval Modes](docs/mcp-approval-modes.md) for details
+> on how approval behavior is configured and the current SDK limitations.
+
 ## What This Is
 
 A **Foundry prompt agent** backed by gpt-4.1-mini that:
@@ -77,7 +86,7 @@ uv run pytest -v
 | `test_edge_cases.py` | 10 | Edge cases — null fields, wrong methods, unknown routes |
 | `test_mcp_server.py` | 13 | MCP server — tools, JSON-RPC, transport security |
 
-### Agent Evaluations (12 cases, requires Azure deployment)
+### Agent Evaluations (16 cases, requires Azure deployment)
 
 ```bash
 # Full suite
@@ -95,6 +104,7 @@ uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
 | `grounding` | 2 | Metric citation, format compliance |
 | `tool_use` | 1 | Correct tool selection + arguments |
 | `consistency` | 1 | Same data across queries |
+| `knowledge` | 4 | Device manual grounding, CLI commands, hybrid triage |
 
 Results are saved to `evals/results/` as timestamped JSON reports. Upload to Foundry's portal dashboard:
 
@@ -134,6 +144,7 @@ az deployment group create \
 | [Lab 3](docs/labs/lab-3-governance-safety.md) | Governance & Safety Controls | 20 min |
 | [Lab 4](docs/labs/lab-4-teams-publish.md) | Optional Teams Publish | 10 min |
 | [Lab 5](docs/labs/lab-5-agent-evaluation.md) | Agent Evaluation | 20 min |
+| [Lab 6](docs/labs/lab-6-knowledge-grounding.md) | Knowledge Grounding | 20 min |
 
 ## Build Phases
 
@@ -144,6 +155,7 @@ This repo was built in phases. See `phases/` for progress checklists:
 - **Phase 3:** Governance + Observability + CI/CD + Docs + Labs
 - **Phase 4:** Polish & Harden (ruff, pyright, 56 tests, pyproject.toml)
 - **Phase 5:** MCP Integration (FastMCP at `/mcp`, McpTool agent registration, Streamable HTTP)
+- **Phase 6:** Knowledge Grounding (device manuals, FileSearchTool, vector store, knowledge eval cases)
 
 ## Key Design Principles
 
@@ -158,6 +170,7 @@ This repo was built in phases. See `phases/` for progress checklists:
 
 - [Architecture](docs/architecture.md) — Component diagrams, identity boundaries, data flow
 - [Guardrails](docs/guardrails.md) — What agent can/cannot do, approval rules, data minimization
+- [MCP Approval Modes](docs/mcp-approval-modes.md) — Per-tool approval configuration, SDK options, patterns
 - [Runbook](docs/runbook.md) — 15-minute demo script, playground testing guide
 - [Troubleshooting](docs/troubleshooting.md) — Common issues and resolutions
 - [Playground Prompts](samples/playground-prompts.md) — Sample prompts for testing
@@ -172,7 +185,7 @@ This project is licensed under the [MIT License](LICENSE).
 ```
 ├── .github/                    # Copilot instructions + CI/CD workflows
 ├── docs/                       # Architecture, guardrails, runbook, troubleshooting
-│   └── labs/                   # Lab 0–4 step-by-step guides
+│   └── labs/                   # Lab 0–6 step-by-step guides
 ├── foundry/                    # Agent definition, OpenAPI spec, system prompt
 ├── infra/bicep/                # Bicep templates (dual-mode networking)
 ├── scripts/                    # Deployment, agent registration, chat runner, smoke test

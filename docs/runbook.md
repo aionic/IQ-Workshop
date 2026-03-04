@@ -22,7 +22,7 @@ Summarize ticket TKT-0042
 **Verify:**
 - Agent calls `query-ticket-context` (visible in the trace panel)
 - Response cites specific fields: `severity`, `signal_type`, `device_id`, `site_id`, metrics
-- Summary uses ≤ 3 bullets
+- Summary uses ≤ 6 bullets
 - No fabricated data — all values match the seed data
 
 ### 3. Review the Triage Summary (1 min)
@@ -194,7 +194,7 @@ Run all 12 evaluation cases against the live agent:
 uv run evals/run_evals.py --resource-group rg-iq-lab-dev
 ```
 
-**Expected:** 11–12/12 cases pass (LLM non-determinism may cause occasional failures).
+**Expected:** 14–16/16 cases pass (LLM non-determinism may cause occasional failures).
 
 ### Verbose single-case run (for demo)
 
@@ -205,7 +205,7 @@ uv run evals/run_evals.py -g rg-iq-lab-dev --case triage-basic-001 -v
 Verbose mode shows:
 - Each tool call the agent made
 - The full agent response text
-- Per-scorer pass/fail (5 scorers: tool_calls, grounding, format, safety, tool_call_args)
+- Per-scorer pass/fail (6 scorers: tool_calls, grounding, format, safety, tool_call_args, knowledge)
 
 ### Demo-worthy eval cases
 

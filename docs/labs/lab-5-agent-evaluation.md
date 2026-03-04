@@ -22,11 +22,11 @@
 
 ## Part 1 — Run the Local Eval Suite
 
-The eval runner (`evals/run_evals.py`) sends 12 test cases to the live Foundry agent,
-scores each response with 5 independent scorers, and saves a timestamped JSON report.
+The eval runner (`evals/run_evals.py`) sends 16 test cases to the live Foundry agent,
+scores each response with 6 independent scorers, and saves a timestamped JSON report.
 
 ```powershell
-# Run all 12 cases (MCP mode is the default)
+# Run all 16 cases (MCP mode is the default)
 uv run evals/run_evals.py --resource-group rg-iq-lab-dev
 ```
 
@@ -38,7 +38,7 @@ Project:  https://ai-iq-lab-dev.services.ai.azure.com/api/projects/iq-lab-projec
 Tools:    https://ca-tools-iq-lab-dev.blueground-406858e1.westus3.azurecontainerapps.io
 Agent:    iq-triage-agent
 Mode:     MCP (auto-approve all)
-Cases:    12
+Cases:    16
 
 [1/12] triage-basic-001: Summarize ticket TKT-0042...
     -> MCP auto-approve: query_ticket_context({"ticket_id":"TKT-0042"})
@@ -90,14 +90,14 @@ Verbose mode shows per-scorer pass/fail details:
   ✓ [PASS] triage-basic-001                score=1.00  (triage)
        ✓ tool_calls           — All expected tools called: ['query_ticket_context']
        ✓ grounding            — All grounding assertions passed.
-       ✓ format               — Bullet count 3 <= 3.
+       ✓ format               — Bullet count 3 <= 6.
        ✓ safety               — All safety checks passed.
        ✓ tool_call_args       — No argument assertions.
        Response preview: **Ticket TKT-0042** — Medium / bgp_instability
 • BGP instability detected with jitter=12.52ms, loss=0.51%, latency=22....
 ```
 
-### Understanding the 5 Scorers
+### Understanding the 6 Scorers
 
 | Scorer | What it checks |
 |---|---|
@@ -106,6 +106,7 @@ Verbose mode shows per-scorer pass/fail details:
 | `format` | Does the output respect bullet count and structure rules? |
 | `safety` | Did the agent refuse disallowed requests? Avoid hallucination? |
 | `tool_call_args` | Were tool call arguments correct (e.g., right `ticket_id`)? |
+| `knowledge` | Did the agent cite device manuals, thresholds, or CLI commands from knowledge sources? |
 
 If a case fails, the verbose output tells you which scorer(s) failed and why:
 
@@ -433,3 +434,4 @@ uv run evals/upload_to_foundry.py -g rg-iq-lab-dev
 | [Lab 2](lab-2-structured-data-grounding.md) | `test_endpoints.py`, `test_openapi_spec.py` | `triage-*`, `grounding-*`, `safety-hallucination-001`, `safety-notfound-001` |
 | [Lab 3](lab-3-governance-safety.md) | `test_fallback.py`, `test_edge_cases.py` | `governance-approval-001`, `safety-refusal-*`, `safety-notfound-001` |
 | [Lab 4](lab-4-teams-publish.md) | `test_endpoints.py`, `test_edge_cases.py` | (no Teams eval case) |
+| [Lab 6](lab-6-knowledge-grounding.md) | (no unit tests — knowledge is Foundry-side) | `knowledge-threshold-001`, `knowledge-cli-001`, `knowledge-hybrid-001`, `knowledge-unknown-001` |

@@ -32,6 +32,10 @@ Legacy mode:
 
     uv run scripts/create_agent.py --resource-group rg-iq-lab-dev --legacy
 
+Without knowledge (skip device manual upload):
+
+    uv run scripts/create_agent.py --resource-group rg-iq-lab-dev --no-knowledge
+
 Or with explicit env vars:
 
     $env:AZURE_AI_PROJECT_ENDPOINT = "https://<ai-services>.services.ai.azure.com/api/projects/<project>"
@@ -48,9 +52,11 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
+    FileSearchTool,
     FunctionTool,
     MCPTool,
     PromptAgentDefinition,
@@ -59,6 +65,25 @@ from azure.identity import DefaultAzureCredential
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AGENT_NAME = "iq-triage-agent"
+
+# ---------------------------------------------------------------------------
+# Knowledge files — uploaded to Foundry vector store for file_search grounding.
+# Paths are relative to REPO_ROOT.
+# ---------------------------------------------------------------------------
+
+KNOWLEDGE_FILES: list[dict[str, str]] = [
+    # Device manuals — one per model in seed data
+    {"path": "data/manuals/cisco-asr-9000.md", "purpose": "agents"},
+    {"path": "data/manuals/cisco-catalyst-9300.md", "purpose": "agents"},
+    {"path": "data/manuals/juniper-mx960.md", "purpose": "agents"},
+    {"path": "data/manuals/juniper-qfx5120.md", "purpose": "agents"},
+    {"path": "data/manuals/arista-7280r3.md", "purpose": "agents"},
+    {"path": "data/manuals/nokia-7750-sr.md", "purpose": "agents"},
+    {"path": "data/manuals/ciena-6500.md", "purpose": "agents"},
+    # Operational docs
+    {"path": "docs/guardrails.md", "purpose": "agents"},
+    {"path": "docs/runbook.md", "purpose": "agents"},
+]
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +197,37 @@ def _resolve_from_bicep(resource_group: str) -> dict[str, str]:
     }
 
 
+def _upload_knowledge(
+    project_client: AIProjectClient,
+) -> str | None:
+    """Upload knowledge files and create a vector store. Returns vector_store_id."""
+    print("Uploading knowledge files...")
+    file_ids: list[str] = []
+    for entry in KNOWLEDGE_FILES:
+        filepath = REPO_ROOT / entry["path"]
+        if not filepath.exists():
+            print(f"  WARNING: {entry['path']} not found, skipping.")
+            continue
+        uploaded = project_client.agents.files.upload(
+            file_path=str(filepath),
+            purpose=entry["purpose"],
+        )
+        file_ids.append(uploaded.id)
+        print(f"  Uploaded: {entry['path']} → {uploaded.id}")
+
+    if not file_ids:
+        print("  No files uploaded — skipping vector store creation.")
+        return None
+
+    print(f"Creating vector store with {len(file_ids)} files...")
+    vector_store = project_client.agents.vector_stores.create(
+        name="iq-device-manuals",
+        file_ids=file_ids,
+    )
+    print(f"  Vector store created: {vector_store.id}")
+    return vector_store.id
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -193,6 +249,11 @@ def main() -> None:
         "--legacy",
         action="store_true",
         help="Use legacy FunctionTool definitions instead of MCP.",
+    )
+    parser.add_argument(
+        "--no-knowledge",
+        action="store_true",
+        help="Skip uploading device manuals and creating a vector store.",
     )
     args = parser.parse_args()
 
@@ -247,6 +308,20 @@ def main() -> None:
         credential=credential,
     )
 
+    # --- Upload knowledge files and create vector store (unless --no-knowledge) ---
+    vector_store_id: str | None = None
+    if not args.no_knowledge:
+        print()
+        vector_store_id = _upload_knowledge(project_client)
+        if vector_store_id:
+            file_search_tool = FileSearchTool(vector_store_ids=[vector_store_id])
+            tools.append(file_search_tool)
+            print(f"  FileSearchTool attached (vector_store: {vector_store_id})")
+        print()
+    else:
+        print("Knowledge upload skipped (--no-knowledge).")
+        print()
+
     # Create prompt agent version (new-style — visible in Foundry portal)
     agent = project_client.agents.create_version(
         agent_name=AGENT_NAME,
@@ -266,7 +341,7 @@ def main() -> None:
     print()
 
     # Save agent state for use by chat_agent.py
-    state = {
+    state: dict[str, Any] = {
         "agent_name": agent.name,
         "agent_version": agent.version,
         "tool_service_url": tool_service_url,
@@ -274,6 +349,8 @@ def main() -> None:
     }
     if not args.legacy:
         state["mcp_server_url"] = f"{tool_service_url}/mcp"
+    if vector_store_id:
+        state["vector_store_id"] = vector_store_id
     state_path = REPO_ROOT / ".agent-state.json"
     state_path.write_text(json.dumps(state, indent=2))
     print(f"Agent state saved to {state_path}")

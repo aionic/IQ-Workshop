@@ -89,6 +89,43 @@ legacy_tools:
     name: post_teams_summary
     description: "Post a remediation summary to Microsoft Teams."
 
+# ---------------------------------------------------------------------------
+# Knowledge Sources (Phase 6 — file_search grounding)
+# ---------------------------------------------------------------------------
+# Device manuals and operational docs are uploaded as Foundry knowledge files
+# and indexed in a vector store. The agent uses file_search to ground triage
+# recommendations in vendor-specific troubleshooting procedures.
+#
+# Registration in create_agent.py:
+#   1. Upload files via project_client.agents.files.upload()
+#   2. Create vector store via project_client.agents.vector_stores.create()
+#   3. Attach via FileSearchTool(vector_store_ids=[vs_id]) on the agent definition
+#
+# Files uploaded:
+knowledge:
+  vector_store_label: iq-device-manuals
+  files:
+    # Device manuals — one per model in seed data
+    - path: data/manuals/cisco-asr-9000.md
+      description: "Cisco ASR-9000 operations manual — CLI commands, thresholds, remediations"
+    - path: data/manuals/cisco-catalyst-9300.md
+      description: "Cisco Catalyst 9300 operations manual — CLI commands, thresholds, remediations"
+    - path: data/manuals/juniper-mx960.md
+      description: "Juniper MX960 operations manual — CLI commands, thresholds, remediations"
+    - path: data/manuals/juniper-qfx5120.md
+      description: "Juniper QFX5120 operations manual — CLI commands, thresholds, remediations"
+    - path: data/manuals/arista-7280r3.md
+      description: "Arista 7280R3 operations manual — CLI commands, thresholds, remediations"
+    - path: data/manuals/nokia-7750-sr.md
+      description: "Nokia 7750 SR operations manual — CLI commands, thresholds, remediations"
+    - path: data/manuals/ciena-6500.md
+      description: "Ciena 6500 operations manual — CLI commands, thresholds, remediations"
+    # Operational docs
+    - path: docs/guardrails.md
+      description: "Agent behavioral guardrails — what the agent can and cannot do"
+    - path: docs/runbook.md
+      description: "Standard operating procedures for IQ triage"
+
 # System instructions
 instructions_file: prompts/system.md
 
