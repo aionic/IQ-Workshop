@@ -263,7 +263,7 @@ TEST_USE_DB=true uv run pytest -v
 - The eval runner uses PEP 723 inline dependencies — `uv run` installs them automatically
 - Ensure `uv` is installed: `uv --version` (need ≥ 0.5)
 - Verify Azure CLI is signed in: `az account show`
-- Check `.agent-state.json` exists with a valid `agent_id` (run `uv run scripts/create_agent.py` first)
+- Check `.agent-state.json` exists with a valid `agent_name` (run `.\scripts\register-agent.ps1` or `uv run scripts/create_agent.py` first)
 
 ### Eval cases fail due to LLM non-determinism
 

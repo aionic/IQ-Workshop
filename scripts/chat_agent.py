@@ -162,7 +162,7 @@ def run_turn_mcp(
     - Tools in HUMAN_APPROVE_TOOLS prompt the operator for confirmation.
     - Unknown tools are rejected.
     """
-    agent_ref = {"agent": {"name": agent_name, "type": "agent_reference"}}
+    agent_ref = {"agent_reference": {"name": agent_name, "type": "agent_reference"}}
 
     # Send user message via the Responses API
     response = openai_client.responses.create(
@@ -233,7 +233,7 @@ def run_turn_legacy(
     user_message: str,
 ) -> str:
     """Legacy mode: send a message, handle function calls via HTTP, return reply."""
-    agent_ref = {"agent": {"name": agent_name, "type": "agent_reference"}}
+    agent_ref = {"agent_reference": {"name": agent_name, "type": "agent_reference"}}
     turn_correlation_id = str(uuid.uuid4())
 
     # Send user message

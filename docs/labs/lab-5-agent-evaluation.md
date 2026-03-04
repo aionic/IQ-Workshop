@@ -2,12 +2,19 @@
 
 > **Goal:** Run automated evaluations against the deployed IQ triage agent to measure
 > grounding accuracy, tool-call correctness, safety refusals, and governance compliance.
+>
+> **Known limitation:** The eval runner (`run_evals.py`) currently uses the classic
+> Assistants threads/runs API. The agent was registered using the new Prompt Agent API
+> (Responses API). The eval runner's state-loading falls back to `agent_name` from
+> `.agent-state.json`, but the threads/runs dispatch may need migration to the Responses
+> API in a future phase. If the eval runner fails with API errors, test through the
+> Foundry playground or `chat_agent.py --single` instead.
 
 ## Prerequisites
 
 | Requirement | Check |
 |---|---|
-| Agent registered | `cat .agent-state.json` shows `agent_id` |
+| Agent registered | `cat .agent-state.json` shows `agent_name` |
 | Tool service running | `curl https://<your-ca-fqdn>/health` returns `{"db":"connected"}` |
 | Azure CLI signed in | `az account show` succeeds |
 | `uv` installed | `uv --version` ≥ 0.5 |

@@ -396,7 +396,7 @@ def main() -> None:
     state = _load_agent_state()
     project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "")
     _tool_service_url = state.get("tool_service_url", os.environ.get("TOOL_SERVICE_URL", ""))
-    agent_id = args.agent_id or state.get("agent_id", os.environ.get("AGENT_ID", ""))
+    agent_id = args.agent_id or state.get("agent_id", "") or state.get("agent_name", "") or os.environ.get("AGENT_ID", "")
 
     # Determine tool mode: CLI flag overrides state file
     tool_mode = "legacy" if args.legacy else state.get("tool_mode", "legacy")
@@ -492,7 +492,7 @@ def main() -> None:
     # --- Report ---
     metadata = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "agent_id": agent_id,
+        "agent_id": agent_id,  # May be agent_name for new-style Prompt Agents
         "project_endpoint": project_endpoint,
         "tool_service_url": _tool_service_url,
         "tool_mode": tool_mode,

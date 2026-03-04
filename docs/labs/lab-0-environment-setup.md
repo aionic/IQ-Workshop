@@ -119,15 +119,15 @@ curl https://<your-container-app>.azurecontainerapps.io/health
 
 ### Step 8: Register the Foundry agent
 
-Register the agent via the SDK (MCP mode is default):
+The `register-agent.ps1` script auto-resolves all values from Bicep outputs and creates
+the Foundry Prompt Agent with MCP tool integration:
 
 ```powershell
-$env:AZURE_AI_PROJECT_ENDPOINT = "https://<ai-services>.services.ai.azure.com/api/projects/<project>"
-$env:TOOL_SERVICE_URL = "https://<your-container-app>.azurecontainerapps.io"
-uv run scripts/create_agent.py
+.\scripts\register-agent.ps1
 ```
 
-This creates a Foundry Prompt Agent registered with `McpTool` pointing at `$TOOL_SERVICE_URL/mcp`.
+This creates a Foundry Prompt Agent registered with `McpTool` pointing at the Container
+App's `/mcp` endpoint (Streamable HTTP). Agent state is saved to `.agent-state.json`.
 
 Alternatively, configure manually in [Azure AI Foundry](https://ai.azure.com):
 1. Open your project → **Agents**

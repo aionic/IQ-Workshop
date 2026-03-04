@@ -61,7 +61,7 @@ Results are saved to `evals/results/eval-<timestamp>.json`:
 {
   "metadata": {
     "timestamp": "2026-03-03T12:00:00+00:00",
-    "agent_id": "asst_...",
+    "agent_name": "iq-triage-agent",
     "model": "gpt-4.1-mini"
   },
   "summary": {
