@@ -5,7 +5,7 @@
 | Component | Technology | Version |
 |---|---|---|
 | Tool Service | Python + FastAPI | 3.12+ / 0.110+ |
-| MCP Server | FastMCP co-hosted at `/mcp` | Streamable HTTP transport |
+git push --force-with-lease origin main| MCP Server | FastMCP co-hosted at `/mcp` | Streamable HTTP transport |
 | Models | Pydantic v2 | 2.0+ |
 | Database | Azure SQL (deployed) / SQL Server Developer (local) | 2022 |
 | Infrastructure | Bicep | latest |

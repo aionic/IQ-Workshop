@@ -21,8 +21,8 @@ permissions:
 env:
   ACR_NAME: ${{ vars.ACR_NAME }}
   RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP_NAME }}
-  CONTAINER_APP_NAME: ca-iq-lab-dev
-  IMAGE_NAME: iq-lab-tools
+  CONTAINER_APP_NAME: ca-tools-iq-lab-dev
+  IMAGE_NAME: iq-tools
 
 jobs:
   deploy:

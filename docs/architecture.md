@@ -110,12 +110,13 @@ flowchart LR
 
 ## Identity Boundaries
 
-Two managed identities enforce the principle of least privilege:
+Two managed identities enforce the principle of least privilege.
+Bicep names them with the environment suffix (e.g., `id-iq-tools-iq-lab-dev` for `dev`):
 
 | Identity | Resource | Permissions |
 |---|---|---|
-| `id-iq-tools` | Tool Service (Container App) | **Read**: `iq_tickets`, `iq_anomalies`, `iq_devices`. **Write**: `iq_remediation_log`, `iq_tickets.status` only |
-| `id-iq-agent` | Foundry Prompt Agent | **No direct DB access.** Agent identity for Cognitive Services OpenAI User role. Client-side tool calls bridge to the tool service. |
+| `id-iq-tools-{suffix}` | Tool Service (Container App) | **Read**: `iq_tickets`, `iq_anomalies`, `iq_devices`. **Write**: `iq_remediation_log`, `iq_tickets.status` only |
+| `id-iq-agent-{suffix}` | Foundry Prompt Agent | **No direct DB access.** Agent identity for Cognitive Services OpenAI User role. Client-side tool calls bridge to the tool service. |
 
 Key rules:
 - The agent identity **cannot** write to the database directly

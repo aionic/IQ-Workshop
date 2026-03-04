@@ -35,6 +35,8 @@ function Write-Fail([string]$msg) { Write-Host "  FAIL: $msg" -ForegroundColor R
 
 $script:failures = 0
 $script:total = 0
+$script:remediationId = $null
+$script:approvalToken = $null
 
 function Test-Endpoint([string]$name, [scriptblock]$test) {
     $script:total++
@@ -57,7 +59,7 @@ if (-not $BaseUrl) {
         --name main `
         --query "properties.outputs.toolServiceUrl.value" `
         --output tsv 2>$null
-    if ($outputsRaw) {
+    if ($LASTEXITCODE -eq 0 -and $outputsRaw) {
         $BaseUrl = $outputsRaw
     }
     else {
@@ -136,6 +138,7 @@ Test-Endpoint "Request approval" {
 # -----------------------------------------------------------------------
 Write-Step "5/8 — POST /admin/approvals/{id}/decide"
 Test-Endpoint "Approve remediation" {
+    if (-not $script:remediationId) { throw "Skipped — no remediation_id from step 4" }
     $body = @{
         decision = "APPROVED"
         approver = "smoke-test@contoso.com"
@@ -150,6 +153,7 @@ Test-Endpoint "Approve remediation" {
 # -----------------------------------------------------------------------
 Write-Step "6/8 — POST /tools/execute-remediation"
 Test-Endpoint "Execute remediation" {
+    if (-not $script:approvalToken) { throw "Skipped — no approval_token from step 4" }
     $body = @{
         ticket_id      = "TKT-0042"
         action         = "smoke_test_restart_bgp"
@@ -195,8 +199,11 @@ Test-Endpoint "MCP server responds" {
             clientInfo      = @{ name = "smoke-test"; version = "1.0" }
         }
     } | ConvertTo-Json -Depth 4
+    # MCP server requires Accept: application/json (json_response=True)
+    $headers = @{ "Accept" = "application/json" }
     $r = Invoke-RestMethod -Uri "$BaseUrl/mcp" `
-        -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10
+        -Method Post -Body $body -ContentType "application/json" `
+        -Headers $headers -TimeoutSec 10
     if (-not $r.result) { throw "No result in MCP initialize response" }
 }
 

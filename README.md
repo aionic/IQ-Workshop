@@ -111,7 +111,7 @@ See [Lab 0 — Environment Setup](docs/labs/lab-0-environment-setup.md) for full
 **Public mode** (workshop default):
 ```bash
 az deployment group create \
-  --resource-group rg-iq-agent-lab-dev \
+  --resource-group rg-iq-lab-dev \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/parameters.dev.json
 ```
@@ -119,7 +119,7 @@ az deployment group create \
 **Private mode** (enterprise — private endpoints, no public access):
 ```bash
 az deployment group create \
-  --resource-group rg-iq-agent-lab-dev \
+  --resource-group rg-iq-lab-dev \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/parameters.private.json
 ```

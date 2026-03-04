@@ -10,6 +10,7 @@
 Before starting, ensure you have:
 
 - **Azure CLI** v2.60+ — `az --version`
+- **PowerShell 7+** (for deployment scripts) — `pwsh --version` (install: `winget install Microsoft.PowerShell`)
 - **Docker Desktop** (for local dev) — `docker --version`
 - **Python 3.11+** — `python --version`
 - **uv** (Python package manager) — `uv --version` (install: `curl -LsSf https://astral.sh/uv/install.sh | sh`)
@@ -20,6 +21,37 @@ Before starting, ensure you have:
 
 Use this track for workshops and demos where simplicity matters.
 
+### One-Command Deploy (Recommended)
+
+The `deploy.ps1` script handles the full deployment lifecycle and is **idempotent** —
+safe to re-run at any point. It will:
+
+- Create the resource group if it doesn't exist
+- Detect and prompt to purge soft-deleted Cognitive Services accounts (common after tearing down a previous deployment)
+- Deploy all Bicep infrastructure (SQL, ACR, Container Apps, AI Services + gpt-4.1-mini)
+- Build the tool service container image in ACR
+- Update the Container App with the new image
+- Seed the database (with `-SeedDatabase`) — including auto-creating a temporary SQL firewall rule for your IP
+- Run a smoke test against all endpoints
+
+```powershell
+# From the repo root in PowerShell 7+:
+.\scripts\deploy.ps1 -SeedDatabase
+```
+
+> **Re-running after errors:** The script is designed to be re-run. If a step fails
+> (e.g., quota limits, network timeout), fix the issue and run the same command again.
+> Schema and seed SQL scripts are idempotent — they clean up existing data before inserting.
+
+> **Tearing down and rebuilding:** If you delete the resource group and redeploy within
+> 48 hours, Azure's soft-delete policy on Cognitive Services accounts will block the Bicep
+> deployment. The script automatically detects this and prompts you to purge the
+> soft-deleted account before proceeding.
+
+### Manual Step-by-Step (Alternative)
+
+If you prefer to run each step individually, follow the steps below.
+
 ### Step 1: Clone and configure
 
 ```bash
@@ -29,14 +61,14 @@ git clone <repo-url> && cd iq-foundry-iq-lab
 ### Step 2: Create the resource group
 
 ```bash
-az group create --name rg-iq-agent-lab-dev --location eastus2
+az group create --name rg-iq-lab-dev --location westus3
 ```
 
 ### Step 3: Deploy infrastructure
 
 ```bash
 az deployment group create \
-  --resource-group rg-iq-agent-lab-dev \
+  --resource-group rg-iq-lab-dev \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/parameters.dev.json
 ```
@@ -65,16 +97,17 @@ Still connected as Entra admin:
 :r data/grant-permissions.sql
 ```
 
-This creates the `id-iq-tools` database user and grants scoped read/write permissions.
+This creates the `id-iq-tools-iq-lab-dev` database user (the tools managed identity)
+and grants scoped read/write permissions.
 
 ### Step 6: Build and push the container
 
 ```bash
 ACR_NAME=<your-acr-name>
 az acr login --name $ACR_NAME
-docker build -t $ACR_NAME.azurecr.io/iq-lab-tools:latest \
+docker build -t $ACR_NAME.azurecr.io/iq-tools:latest \
   --platform linux/amd64 services/api-tools/
-docker push $ACR_NAME.azurecr.io/iq-lab-tools:latest
+docker push $ACR_NAME.azurecr.io/iq-tools:latest
 ```
 
 ### Step 7: Verify the tool service
@@ -118,10 +151,10 @@ git clone <repo-url> && cd iq-foundry-iq-lab
 ### Step 2: Create resource group and deploy
 
 ```bash
-az group create --name rg-iq-agent-lab-dev --location eastus2
+az group create --name rg-iq-lab-dev --location westus3
 
 az deployment group create \
-  --resource-group rg-iq-agent-lab-dev \
+  --resource-group rg-iq-lab-dev \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/parameters.private.json
 ```
@@ -147,7 +180,7 @@ Private ACR requires building inside Azure (no local push):
 ```bash
 az acr build \
   --registry <acr-name> \
-  --image iq-lab-tools:latest \
+  --image iq-tools:latest \
   --platform linux/amd64 \
   --file services/api-tools/Dockerfile \
   services/api-tools/
@@ -189,7 +222,7 @@ curl http://localhost:8000/health
 
 ### Step 3: Run the test suite
 
-The project includes **43 unit tests** across 5 test files. Run them with:
+The project includes **56 unit tests** across 6 test files. Run them with:
 
 ```bash
 cd services/api-tools
@@ -210,7 +243,7 @@ tests/test_endpoints.py::test_approval_flow_end_to_end PASSED
 tests/test_endpoints.py::test_teams_summary_stub_no_webhook PASSED
 tests/test_fallback.py::test_query_ticket_context_db_error PASSED
 ...
-======================== 43 passed in 2.xx s ========================
+======================== 56 passed in 2.xx s ========================
 ```
 
 #### What the tests cover
@@ -221,6 +254,7 @@ tests/test_fallback.py::test_query_ticket_context_db_error PASSED
 | `test_fallback.py` | 6 | Safe fallback — every DB-dependent endpoint returns 503 + `{"fallback": true}` on DB failure |
 | `test_validation.py` | 11 | Schema validation — missing/wrong fields produce 422 Unprocessable Entity |
 | `test_openapi_spec.py` | 8 | OpenAPI spec validity — JSON parseable, paths exist, `$ref` pointers resolve |
+| `test_mcp_server.py` | 13 | MCP server — tool discovery, initialization, streaming HTTP transport |
 | `test_edge_cases.py` | 10 | Edge cases — empty ticket ID, null fields, wrong HTTP method, nonexistent routes |
 
 All tests mock the DB layer by default, so they run without a database connection.
@@ -246,6 +280,6 @@ full walkthrough of the eval framework.
 - [ ] Database seeded with schema + seed data (`SELECT COUNT(*) FROM dbo.iq_tickets` returns rows)
 - [ ] Managed identity permissions granted (Azure only)
 - [ ] `GET /health` returns `{"status": "ok", "db": "connected"}`
-- [ ] 43 unit tests pass (`uv run pytest -v` shows all green)
+- [ ] 56 unit tests pass (`uv run pytest -v` shows all green)
 - [ ] Agent loaded in Foundry playground (Azure only)
 - [ ] (Optional) Agent eval suite runs successfully (`uv run evals/run_evals.py`)

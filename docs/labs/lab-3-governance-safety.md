@@ -13,11 +13,11 @@
 
 #### Step 1: Verify agent identity cannot write
 
-Connect to Azure SQL as the agent identity (`id-iq-agent`) or simulate by checking permissions:
+Connect to Azure SQL as the agent identity (`id-iq-agent-iq-lab-dev`) or simulate by checking permissions:
 
 ```sql
--- As Entra admin, check id-iq-agent permissions:
-EXECUTE AS USER = 'id-iq-agent';
+-- As Entra admin, check id-iq-agent-iq-lab-dev permissions:
+EXECUTE AS USER = 'id-iq-agent-iq-lab-dev';
 INSERT INTO dbo.iq_remediation_log (ticket_id, proposed_action, rationale, status, correlation_id)
 VALUES ('TKT-TEST', 'test', 'test', 'PENDING', 'test-id');
 -- Expected: permission denied error
@@ -27,8 +27,8 @@ REVERT;
 #### Step 2: Verify tool service identity can write
 
 ```sql
--- As Entra admin, check id-iq-tools permissions:
-EXECUTE AS USER = 'id-iq-tools';
+-- As Entra admin, check id-iq-tools-iq-lab-dev permissions:
+EXECUTE AS USER = 'id-iq-tools-iq-lab-dev';
 INSERT INTO dbo.iq_remediation_log (ticket_id, proposed_action, rationale, status, correlation_id)
 VALUES ('TKT-TEST', 'Identity test', 'Verifying write access', 'PENDING', 'identity-test-001');
 -- Expected: success (1 row affected)

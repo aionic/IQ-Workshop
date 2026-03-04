@@ -64,11 +64,11 @@ $outputsRaw = az deployment group show `
     --query "properties.outputs" `
     --output json 2>$null
 
-if (-not $outputsRaw) {
+if ($LASTEXITCODE -ne 0 -or -not $outputsRaw) {
     throw "No Bicep deployment named 'main' found in $ResourceGroup. Run deploy.ps1 first."
 }
 
-$outputs = $outputsRaw | ConvertFrom-Json
+$outputs = $outputsRaw | Out-String | ConvertFrom-Json
 
 $toolServiceUrl     = $outputs.toolServiceUrl.value
 $aiServicesName     = $outputs.aiServicesName.value

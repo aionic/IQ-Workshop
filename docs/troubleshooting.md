@@ -37,6 +37,46 @@
 
 ## Azure Deployment Issues
 
+### Cognitive Services soft-delete blocks redeployment
+
+**Symptom:** Bicep deployment fails with `FlagMustBeSetForRestore` — "An existing resource
+has been soft-deleted. To restore the resource, you must specify 'restore' to be 'true'."
+
+**Cause:** Azure soft-deletes Cognitive Services accounts for 48 hours after resource group
+deletion. Re-deploying the same Bicep template within that window sees the
+soft-deleted resource and refuses to create a new one.
+
+**Solutions:**
+- **Automated (recommended):** Re-run `.\scripts\deploy.ps1` — it automatically detects
+  soft-deleted accounts matching the resource group and prompts you to purge them
+- **Manual purge:**
+  ```powershell
+  # List soft-deleted accounts
+  az cognitiveservices account list-deleted --output table
+  # Purge a specific account
+  az cognitiveservices account purge --name ai-iq-lab-dev --resource-group rg-iq-lab-dev --location westus3
+  ```
+- **Wait it out:** Soft-deleted accounts are auto-purged after 48 hours
+- See: https://learn.microsoft.com/azure/ai-services/recover-purge-resources
+
+### SQL firewall blocks seeding from local machine
+
+**Symptom:** `Invoke-Sqlcmd` fails with "Client with IP address X.X.X.X is not allowed
+to access the server" when running `seed-database.ps1`.
+
+**Cause:** Azure SQL Server firewall doesn't include your current public IP.
+
+**Solutions:**
+- **Automated (recommended):** Use `.\scripts\deploy.ps1 -SeedDatabase` or
+  `.\scripts\seed-database.ps1` — both auto-detect your public IP, create a temporary
+  firewall rule, and clean it up after seeding completes
+- **Manual:** Add your IP in Azure Portal → SQL Server → Networking → Firewall rules
+- **Using `az` CLI:**
+  ```powershell
+  $ip = (Invoke-RestMethod https://api.ipify.org).Trim()
+  az sql server firewall-rule create -g rg-iq-lab-dev -s sql-iq-lab-dev -n my-ip --start-ip-address $ip --end-ip-address $ip
+  ```
+
 ### SQL connectivity from Container App
 
 **Symptom:** Tool service returns 503 / "Database unavailable" on all DB endpoints.
@@ -45,17 +85,17 @@
 - **Public mode:** Verify the Container App's outbound IPs are in the SQL Server firewall rules (Bicep creates these automatically)
 - **Private mode:** Confirm private endpoint is created and DNS resolves: `nslookup <server>.database.windows.net` should return a private IP (10.x.x.x)
 - Check the Container App env vars: `AZURE_SQL_SERVER_FQDN`, `DB_NAME`, `DB_AUTH_MODE=token`
-- Verify the managed identity `id-iq-tools` has been created as a user in Azure SQL (run `grant-permissions.sql` as Entra admin)
+- Verify the managed identity `id-iq-tools-iq-lab-dev` has been created as a user in Azure SQL (run `grant-permissions.sql` as Entra admin)
 
 ### Token auth fails (Managed Identity)
 
 **Symptom:** `azure.identity.CredentialUnavailableError` or "Login failed for user '<token-identified principal>'"
 
 **Solutions:**
-- Confirm `AZURE_CLIENT_ID` env var is set on the Container App to the `id-iq-tools` managed identity client ID
+- Confirm `AZURE_CLIENT_ID` env var is set on the Container App to the `id-iq-tools-iq-lab-dev` managed identity client ID
 - Verify the Entra user was created in Azure SQL:
   ```sql
-  CREATE USER [id-iq-tools] FROM EXTERNAL PROVIDER;
+  CREATE USER [id-iq-tools-iq-lab-dev] FROM EXTERNAL PROVIDER;
   ```
 - Check the token scope is correct: `https://database.windows.net/.default`
 - If using `DefaultAzureCredential` locally, ensure you're logged in: `az login`
@@ -66,7 +106,8 @@
 **Symptom:** Cannot run SQL scripts against the Azure SQL database.
 
 **Solutions:**
-- **Public mode:** Add your IP to the SQL Server firewall (Azure Portal → SQL Server → Networking)
+- **Automated:** `seed-database.ps1` and `deploy.ps1 -SeedDatabase` auto-create a temporary SQL firewall rule for your IP (and remove it after). Just re-run the script.
+- **Public mode:** Add your IP to the SQL Server firewall (Azure Portal → SQL Server → Networking), or use the `az sql server firewall-rule create` command shown above
 - **Private mode:** You must connect from inside the VNet — use Azure Cloud Shell, a jumpbox VM, or VPN
 - Use Azure Data Studio or `sqlcmd` with Entra auth: `sqlcmd -S <server>.database.windows.net -d sqldb-iq --authentication-method=ActiveDirectoryDefault`
 
@@ -78,7 +119,7 @@
 - **Public mode:** `az acr login --name <acr-name>` then `docker push`
 - **Private mode:** Use `az acr build` from Azure Cloud Shell (builds directly in ACR, no local push needed):
   ```bash
-  az acr build --registry <acr-name> --image iq-lab-tools:latest --platform linux/amd64 -f services/api-tools/Dockerfile services/api-tools/
+  az acr build --registry <acr-name> --image iq-tools:latest --platform linux/amd64 -f services/api-tools/Dockerfile services/api-tools/
   ```
 - Ensure the deploying identity has `AcrPush` role on the registry
 
