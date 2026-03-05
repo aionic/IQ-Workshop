@@ -10,7 +10,7 @@
     seeds the database and grants managed identity permissions.
 
 .PARAMETER ResourceGroup
-    Target resource group name (default: rg-iq-lab-dev).
+    Target resource group name. Resolved from RESOURCE_GROUP env var or prompted.
 
 .PARAMETER Location
     Azure region (default: westus3).
@@ -45,17 +45,24 @@
 
 [CmdletBinding()]
 param(
-    [string]$ResourceGroup = "rg-iq-lab-dev",
+    [string]$ResourceGroup = "",
     [string]$Location = "westus3",
     [string]$ParameterFile = "$PSScriptRoot\..\infra\bicep\parameters.dev.json",
     [string]$ImageTag = "v$(Get-Date -Format 'yyyyMMdd-HHmm')",
+    [string]$UniqueSuffix = "",
     [switch]$SkipBicep,
     [switch]$SkipImage,
+    [switch]$SkipRoleAssignments,
     [switch]$SeedDatabase
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Resolve resource group: parameter > env var > prompt
+if (-not $ResourceGroup) { $ResourceGroup = $env:RESOURCE_GROUP }
+if (-not $ResourceGroup) { $ResourceGroup = Read-Host "Resource group (e.g. rg-iq-lab-dev)" }
+if (-not $ResourceGroup) { throw "Resource group is required. Pass -ResourceGroup or set RESOURCE_GROUP env var." }
 
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $BicepFile = Join-Path $RepoRoot "infra\bicep\main.bicep"
@@ -145,18 +152,47 @@ function Resolve-SoftDeletedCognitiveServices([string]$rg, [string]$loc) {
 if (-not $SkipBicep) {
     Resolve-SoftDeletedCognitiveServices -rg $ResourceGroup -loc $Location
 
+    # ---------------------------------------------------------------
+    # Prompt for unique suffix if not provided (avoids global name
+    # collisions on SQL Server, ACR, AI Services)
+    # ---------------------------------------------------------------
+    if ([string]::IsNullOrWhiteSpace($UniqueSuffix)) {
+        Write-Host ""
+        Write-Host "  Resource names for SQL Server, ACR, and AI Services must be globally" -ForegroundColor Yellow
+        Write-Host "  unique across all Azure tenants. A short suffix avoids collisions." -ForegroundColor Yellow
+        $UniqueSuffix = Read-Host "  Enter a unique suffix (e.g. your initials + 2 digits: an42) or press Enter to skip"
+    }
+
+    # Build parameter overrides
+    $bicepOverrides = @()
+    if (-not [string]::IsNullOrWhiteSpace($UniqueSuffix)) {
+        $bicepOverrides += "uniqueSuffix=$UniqueSuffix"
+    }
+    if ($SkipRoleAssignments) {
+        $bicepOverrides += "skipRoleAssignments=true"
+    }
+
     Write-Step "Deploying Bicep infrastructure"
     Write-Host "  Template:   $BicepFile"
     Write-Host "  Parameters: $ParameterFile"
     Write-Host "  RG:         $ResourceGroup"
+    if ($UniqueSuffix) { Write-Host "  Suffix:     $UniqueSuffix" }
+    if ($SkipRoleAssignments) { Write-Host "  RBAC:       skipped (Contributor-only mode)" -ForegroundColor Yellow }
 
     # Run Bicep deployment — stderr goes to console, stdout captured as JSON
-    $deployRaw = az deployment group create `
-        --resource-group $ResourceGroup `
-        --template-file $BicepFile `
-        --parameters $ParameterFile `
-        --query "properties.{state:provisioningState, outputs:outputs}" `
-        --output json
+    $deployArgs = @(
+        "deployment", "group", "create",
+        "--resource-group", $ResourceGroup,
+        "--template-file", $BicepFile,
+        "--parameters", $ParameterFile
+    )
+    foreach ($override in $bicepOverrides) {
+        $deployArgs += "--parameters"
+        $deployArgs += $override
+    }
+    $deployArgs += @("--query", "properties.{state:provisioningState, outputs:outputs}", "--output", "json")
+
+    $deployRaw = & az @deployArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Bicep deployment failed (exit code $LASTEXITCODE). Review errors above."
     }
@@ -201,9 +237,9 @@ if (-not $SkipImage) {
     $imageFull = "$acrName.azurecr.io/iq-tools:$ImageTag"
 
     Write-Step "Building container image: $imageFull"
-    Push-Location $ApiToolsDir
+    Push-Location $RepoRoot
     try {
-        az acr build --registry $acrName --image "iq-tools:$ImageTag" --platform linux/amd64 .
+        az acr build --registry $acrName --image "iq-tools:$ImageTag" --platform linux/amd64 services/api-tools
         if ($LASTEXITCODE -ne 0) {
             throw "ACR build failed (exit code $LASTEXITCODE). Review errors above."
         }
@@ -244,12 +280,36 @@ else {
 # every DB-dependent endpoint returns 503 "db unavailable".
 # -----------------------------------------------------------------------
 if ($SeedDatabase) {
-    Write-Step "Seeding Azure SQL database (with MI permissions)"
+    # ---------------------------------------------------------------
+    # Primary seeding method: PowerShell seed-database.ps1
+    # Connects to Azure SQL via Entra token (your az login identity),
+    # runs schema.sql + seed.sql, and grants MI permissions in one shot.
+    # ---------------------------------------------------------------
+    Write-Step "Seeding database and granting MI permissions (via seed-database.ps1)"
     & "$PSScriptRoot\seed-database.ps1" -ResourceGroup $ResourceGroup -GrantPermissions
+
     # Give the Container App a few seconds to pick up DB connectivity
-    # after MI permissions are granted (token cache refresh)
-    Write-Host "  Waiting 10s for managed identity token propagation..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 10
+    # after MI permissions are granted (token cache refresh).
+    Write-Host "  Waiting 15s for managed identity token propagation..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 15
+
+    # Resolve Container App name and restart revision to pick up fresh MI token
+    if (-not $caName) {
+        $caName = if ($outputs) {
+            $fqdn = ($outputs.toolServiceUrl.value -replace '^https://', '')
+            ($fqdn -split '\.')[0]
+        }
+        else {
+            (az containerapp list -g $ResourceGroup --query "[0].name" -o tsv)
+        }
+    }
+    $latestRev = (az containerapp revision list --name $caName --resource-group $ResourceGroup --query "sort_by([],&properties.createdTime)[-1].name" -o tsv)
+    if ($latestRev) {
+        Write-Step "Restarting Container App revision to pick up MI credentials"
+        az containerapp revision restart --name $caName --resource-group $ResourceGroup --revision $latestRev --output none 2>$null
+        Write-Host "  Waiting 30s for revision restart..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 30
+    }
 }
 
 # -----------------------------------------------------------------------
@@ -262,10 +322,49 @@ Write-Host "`n============================================" -ForegroundColor Gre
 Write-Host " Deployment complete!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "Next steps:"
-if (-not $SeedDatabase) {
-    Write-Host "  1. Seed + grant MI permissions: .\scripts\deploy.ps1 -SeedDatabase -SkipBicep -SkipImage"
+
+# -----------------------------------------------------------------------
+# Post-deploy: role assignment commands for Contributor-only deploys
+# -----------------------------------------------------------------------
+if ($SkipRoleAssignments) {
+    Write-Host ""
+    Write-Host "  RBAC ROLE ASSIGNMENTS WERE SKIPPED." -ForegroundColor Yellow
+    Write-Host "  Ask an Owner or RBAC Administrator to run these 3 commands:" -ForegroundColor Yellow
+    Write-Host ""
+    # Fetch principal IDs from deployment outputs
+    $roleOutputs = az deployment group show `
+        --resource-group $ResourceGroup `
+        --name main `
+        --query "properties.outputs" `
+        --output json 2>$null | Out-String | ConvertFrom-Json
+    $miToolsPid  = if ($roleOutputs) { $roleOutputs.miToolsPrincipalId.value } else { '<miToolsPrincipalId>' }
+    $miAgentPid  = if ($roleOutputs) { $roleOutputs.miAgentPrincipalId.value } else { '<miAgentPrincipalId>' }
+    $acrId       = if ($roleOutputs) { "/subscriptions/$($account.id)/resourceGroups/$ResourceGroup/providers/Microsoft.ContainerRegistry/registries/$($roleOutputs.acrLoginServer.value -replace '\.azurecr\.io','')" } else { '<acrResourceId>' }
+    $aiName      = if ($roleOutputs) { $roleOutputs.aiServicesName.value } else { '<aiServicesName>' }
+    $aiId        = "/subscriptions/$($account.id)/resourceGroups/$ResourceGroup/providers/Microsoft.CognitiveServices/accounts/$aiName"
+
+    Write-Host "  # 1. AcrPull — let Container Apps pull images"
+    Write-Host "  az role assignment create --assignee-object-id $miToolsPid --assignee-principal-type ServicePrincipal --role 'AcrPull' --scope $acrId" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  # 2. Cognitive Services OpenAI User — tool service MI"
+    Write-Host "  az role assignment create --assignee-object-id $miToolsPid --assignee-principal-type ServicePrincipal --role 'Cognitive Services OpenAI User' --scope $aiId" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  # 3. Cognitive Services OpenAI User — agent MI"
+    Write-Host "  az role assignment create --assignee-object-id $miAgentPid --assignee-principal-type ServicePrincipal --role 'Cognitive Services OpenAI User' --scope $aiId" -ForegroundColor White
+    Write-Host ""
 }
-Write-Host "  $(if ($SeedDatabase) {'1'} else {'2'}). Register Foundry agent: .\scripts\register-agent.ps1"
-Write-Host "  $(if ($SeedDatabase) {'2'} else {'3'}). Open AI Foundry playground and test the agent"
+
+Write-Host "Next steps:"
+$step = 1
+if (-not $SeedDatabase) {
+    Write-Host "  $step. Seed + grant MI permissions: .\scripts\deploy.ps1 -SeedDatabase -SkipBicep -SkipImage"
+    $step++
+}
+if ($SkipRoleAssignments) {
+    Write-Host "  $step. Create the 3 RBAC role assignments shown above (requires Owner or RBAC Admin)"
+    $step++
+}
+Write-Host "  $step. Register Foundry agent: .\scripts\register-agent.ps1"
+$step++
+Write-Host "  $step. Open AI Foundry playground and test the agent"
 Write-Host ""

@@ -9,13 +9,184 @@
 
 Before starting, ensure you have:
 
-- **Azure CLI** v2.60+ — `az --version`
-- **PowerShell 7+** (for deployment scripts) — `pwsh --version` (install: `winget install Microsoft.PowerShell`)
-- **Docker Desktop** (for local dev) — `docker --version`
-- **Python 3.11+** — `python --version`
-- **uv** (Python package manager) — `uv --version` (install: `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- **Azure subscription** with Contributor access (for Azure deployment tracks)
-- **Git** — `git --version`
+| Tool | Minimum Version | Check | Install |
+|---|---|---|---|
+| **Azure CLI** | 2.60+ | `az --version` | [aka.ms/installazurecli](https://aka.ms/installazurecli) |
+| **PowerShell 7+** | 7.0 | `pwsh --version` | [github.com/PowerShell](https://github.com/PowerShell/PowerShell/releases) or `winget install Microsoft.PowerShell` |
+| **Docker Desktop** | 4.x | `docker --version` | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
+| **Python** | 3.11+ | `python --version` | [python.org/downloads](https://www.python.org/downloads/) |
+| **uv** | 0.4+ | `uv --version` | [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) or `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| **Git** | 2.x | `git --version` | [git-scm.com/downloads](https://git-scm.com/downloads) |
+| **sqlcmd** _(Azure seeding)_ | — | `sqlcmd --version` | [Go sqlcmd (recommended)](https://github.com/microsoft/go-sqlcmd) or [mssql-tools18](https://learn.microsoft.com/sql/linux/sql-server-linux-setup-tools) |
+
+> **Apple Silicon (M1/M2/M3):** The Docker images are amd64-only. Enable
+> **Docker Desktop → Settings → General → "Use Rosetta for x86_64/amd64 emulation"**
+> or you will see `exec format error` on `docker compose up`.
+
+- **Azure subscription** with required permissions (see [Required Azure Permissions](#required-azure-permissions) below)
+
+---
+
+## Required Azure Permissions
+
+The deploying user (your Azure CLI identity) needs the following permissions on the target subscription or resource group:
+
+| Permission / Role | Why it's needed | Scope |
+|---|---|---|
+| **Contributor** | Create resource groups, deploy Bicep resources (SQL, ACR, Container Apps, AI Services, managed identities, VNet) | Subscription or Resource Group |
+| **User Access Administrator** _or_ **Role Based Access Control Administrator** | The Bicep template assigns RBAC roles (AcrPull for managed identity, Cognitive Services OpenAI User for MI). **Can be skipped** — see [Contributor-Only Deployment](#contributor-only-deployment) below. | Resource Group |
+| **Cognitive Services Contributor** | Purge soft-deleted Cognitive Services accounts if redeploying within 48 hours | Subscription (for `az cognitiveservices account purge`) |
+| **SQL Server Entra Admin** | Seed the database and grant managed identity permissions (`CREATE USER ... FROM EXTERNAL PROVIDER`) | Configured in Bicep parameters (`entraAdminObjectId`) |
+
+> **Minimum combined role:** **Owner** on the resource group covers Contributor + User Access Administrator.
+> For least-privilege setups, assign **Contributor** + **Role Based Access Control Administrator** at the resource group scope.
+
+### Contributor-Only Deployment
+
+If you only have **Contributor** (not Owner or RBAC Administrator), you can still deploy by skipping the 3 RBAC role assignments in Bicep. The deploy scripts will print the exact `az role assignment create` commands for an admin to run after deployment.
+
+**Using deploy scripts:**
+```powershell
+# PowerShell
+.\scripts\deploy.ps1 -SeedDatabase -SkipRoleAssignments
+
+# Bash
+./scripts/deploy.sh -s --skip-role-assignments
+```
+
+**Using Bicep directly:**
+```bash
+az deployment group create \
+  --resource-group rg-iq-lab-dev \
+  --template-file infra/bicep/main.bicep \
+  --parameters infra/bicep/parameters.dev.json \
+  --parameters skipRoleAssignments=true
+```
+
+After deployment, an **Owner** or **RBAC Administrator** must create these 3 role assignments (the deploy scripts print them with populated values):
+
+```bash
+# 1. AcrPull — let Container Apps pull images
+az role assignment create \
+  --assignee-object-id <miToolsPrincipalId> \
+  --assignee-principal-type ServicePrincipal \
+  --role "AcrPull" \
+  --scope <acrResourceId>
+
+# 2. Cognitive Services OpenAI User — tool service MI
+az role assignment create \
+  --assignee-object-id <miToolsPrincipalId> \
+  --assignee-principal-type ServicePrincipal \
+  --role "Cognitive Services OpenAI User" \
+  --scope <aiServicesResourceId>
+
+# 3. Cognitive Services OpenAI User — agent MI
+az role assignment create \
+  --assignee-object-id <miAgentPrincipalId> \
+  --assignee-principal-type ServicePrincipal \
+  --role "Cognitive Services OpenAI User" \
+  --scope <aiServicesResourceId>
+```
+
+> **Tip:** The principal IDs and resource IDs are available in the Bicep deployment outputs.
+> Run `az deployment group show -g rg-iq-lab-dev -n main --query properties.outputs` to retrieve them.
+
+### Resource Providers Required
+
+The following Azure resource providers must be registered on your subscription. Most are registered by default, but verify with `az provider list --query "[?registrationState=='Registered'].namespace" -o tsv`:
+
+| Provider | Resources |
+|---|---|
+| `Microsoft.Sql` | Azure SQL Server + Database |
+| `Microsoft.ContainerRegistry` | Azure Container Registry |
+| `Microsoft.App` | Container Apps + Managed Environment |
+| `Microsoft.ManagedIdentity` | User-assigned Managed Identities |
+| `Microsoft.CognitiveServices` | Azure AI Services + Foundry Project + Model Deployment |
+| `Microsoft.OperationalInsights` | Log Analytics Workspace |
+| `Microsoft.Insights` | Application Insights (+ AMPLS in private mode) |
+| `Microsoft.Authorization` | Role assignments (AcrPull, Cognitive Services OpenAI User) |
+| `Microsoft.Network` | VNet, private endpoints, DNS zones (private mode only) |
+
+Register any missing providers:
+```bash
+az provider register --namespace Microsoft.CognitiveServices
+az provider register --namespace Microsoft.App
+```
+
+---
+
+## Variables You Must Customize
+
+The Bicep parameter files contain placeholder values that **must** be updated before deployment. The table below lists every variable you need to set — nothing else needs changing for a default workshop deployment.
+
+### Bicep Parameters (`infra/bicep/parameters.dev.json`)
+
+| Parameter | Current Value | What to Set | Required |
+|---|---|---|---|
+| `entraAdminObjectId` | `98e79176-ff79-441d-ae4e-2bfc5ccf1a06` | Your Entra ID user or group Object ID (find with `az ad signed-in-user show --query id -o tsv`) | **Yes** |
+| `entraAdminDisplayName` | `Anthony Nevico` | Your name or group name matching the Object ID | **Yes** |
+| `location` | `westus3` | Azure region — change only if `westus3` doesn't have gpt-4.1-mini capacity | Optional |
+| `environmentName` | `dev` | Suffix for all resource names (e.g., `sql-iq-lab-dev`) | Optional |
+| `aiModelName` | `gpt-4.1-mini` | Model to deploy — must be available in your region | Optional |
+| `aiModelVersion` | `2025-04-14` | Model version — update if a newer version is available | Optional |
+| `aiModelCapacity` | `30` | TPM capacity in 1K units (30 = 30K TPM) — increase if you hit quota limits | Optional |
+| `toolServiceImage` | `mcr.microsoft.com/azuredocs/containerapps-helloworld:latest` | Leave as-is — `deploy.ps1` replaces this after ACR build | Do not change |
+| `uniqueSuffix` | `""` (empty) | Short suffix (e.g. `an42`) to make globally-scoped names unique — SQL Server, ACR, AI Services. The deploy scripts prompt for this interactively. | Recommended |
+| `skipRoleAssignments` | `false` | Set to `true` if you only have Contributor (see [Contributor-Only Deployment](#contributor-only-deployment)) | Optional |
+
+### Bicep Parameters — Private Mode (`infra/bicep/parameters.private.json`)
+
+Same as above, **plus** these additional parameters:
+
+| Parameter | Current Value | What to Set | Required |
+|---|---|---|---|
+| `entraAdminObjectId` | `TODO: your-entra-user-or-group-object-id` | Your Entra ID Object ID | **Yes** |
+| `entraAdminDisplayName` | `TODO: Your Name or Group Name` | Your display name | **Yes** |
+| `location` | `west3` | **Fix to** `westus3` (or your preferred region) — the default has a typo | **Yes** |
+| `vnetAddressPrefix` | `10.0.0.0/16` | VNet CIDR — change only if it conflicts with existing networks | Optional |
+| `snetContainerAppsPrefix` | `10.0.1.0/24` | Container Apps subnet CIDR | Optional |
+| `snetPrivateEndpointsPrefix` | `10.0.2.0/24` | Private endpoints subnet CIDR | Optional |
+| `uniqueSuffix` | `""` (empty) | Same as public mode — short suffix for global name uniqueness | Recommended |
+| `skipRoleAssignments` | `false` | Same as public mode — set `true` for Contributor-only deploys | Optional |
+
+### Script Defaults
+
+The deployment scripts have sensible defaults but accept overrides:
+
+| Script | Parameter | Default | What to change |
+|---|---|---|---|
+| `deploy.ps1` | `-ResourceGroup` | `rg-iq-lab-dev` | Your preferred resource group name |
+| `deploy.ps1` | `-Location` | `westus3` | Azure region |
+| `deploy.ps1` | `-ParameterFile` | `infra/bicep/parameters.dev.json` | Use `parameters.private.json` for private mode |
+| `deploy.ps1` | `-UniqueSuffix` | _(prompted)_ | Short suffix for globally-unique names (e.g. `an42`) |
+| `deploy.ps1` | `-SkipRoleAssignments` | `false` | Skip RBAC assignments (Contributor-only) |
+| `deploy.sh` | `-u, --unique-suffix` | _(prompted)_ | Short suffix for globally-unique names (e.g. `an42`) |
+| `deploy.sh` | `--skip-role-assignments` | `false` | Skip RBAC assignments (Contributor-only) |
+| `register-agent.ps1` | `-ResourceGroup` | `rg-iq-lab-dev` | Must match what you used for deployment |
+| `seed-database.ps1` | `-ResourceGroup` | `rg-iq-lab-dev` | Must match what you used for deployment |
+| `smoke-test.ps1` | `-ResourceGroup` | `rg-iq-lab-dev` | Must match what you used for deployment |
+
+### Local Development (`.env`)
+
+| Variable | Default in `.env.example` | What to change |
+|---|---|---|
+| `SA_PASSWORD` | `YourStr0ngP@ssword!` | Set a strong password (local SQL container only) |
+| `DB_AUTH_MODE` | `password` | Leave as `password` for local; `deploy.ps1` sets `token` for Azure |
+| `AZURE_SQL_SERVER_FQDN` | `localhost` | Leave as `localhost` for local; Azure uses Bicep output |
+| `AZURE_SQL_DATABASE_NAME` | `sqldb-iq` | Leave as-is (matches Bicep) |
+
+### How to Find Your Entra Admin Object ID
+
+```powershell
+# Your own Object ID (signed-in user)
+az ad signed-in-user show --query id -o tsv
+
+# A specific user
+az ad user show --id user@contoso.com --query id -o tsv
+
+# A group
+az ad group show --group "IQ Lab Admins" --query id -o tsv
+```
 
 ## Track A: Public Mode (Workshop Default)
 
@@ -222,12 +393,14 @@ curl http://localhost:8000/health
 
 ### Step 3: Run the test suite
 
-The project includes **56 unit tests** across 6 test files. Run them with:
+The project includes **56 unit tests** across 6 test files. All Python commands use `uv`
+which auto-creates a `.venv` in the project directory — it never installs into the system
+Python:
 
 ```bash
 cd services/api-tools
-uv sync --extra dev
-uv run pytest -v
+uv sync --extra dev    # creates .venv/ and installs all deps
+uv run pytest -v       # runs pytest inside the .venv
 ```
 
 **Expected output:**
@@ -268,7 +441,7 @@ If you've deployed to Azure and registered an agent, run the automated eval suit
 uv run evals/run_evals.py --resource-group rg-iq-lab-dev
 ```
 
-This sends 12 test prompts through the live agent and scores responses for grounding,
+This sends 17 test prompts through the live agent and scores responses for grounding,
 safety, governance, and format compliance. See [Lab 5](lab-5-agent-evaluation.md) for a
 full walkthrough of the eval framework.
 

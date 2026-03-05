@@ -9,7 +9,7 @@
     Optionally runs grant-permissions.sql to grant managed identity access.
 
 .PARAMETER ResourceGroup
-    Resource group containing the SQL server (default: rg-iq-lab-dev).
+    Resource group containing the SQL server. Resolved from RESOURCE_GROUP env var or prompted.
 
 .PARAMETER ServerName
     SQL server name without .database.windows.net suffix (default: auto-detected from RG).
@@ -31,7 +31,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$ResourceGroup = "rg-iq-lab-dev",
+    [string]$ResourceGroup = "",
     [string]$ServerName,
     [string]$DatabaseName = "sqldb-iq",
     [switch]$GrantPermissions
@@ -39,6 +39,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Resolve resource group: parameter > env var > prompt
+if (-not $ResourceGroup) { $ResourceGroup = $env:RESOURCE_GROUP }
+if (-not $ResourceGroup) { $ResourceGroup = Read-Host "Resource group (e.g. rg-iq-lab-dev)" }
+if (-not $ResourceGroup) { throw "Resource group is required. Pass -ResourceGroup or set RESOURCE_GROUP env var." }
 
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $DataDir = Join-Path $RepoRoot "data"
@@ -140,15 +145,43 @@ Write-Ok "Server: $ServerFQDN / Database: $DatabaseName"
 # than general internet), a second rule is created for that IP.
 # All temporary rules are removed at the end of the script.
 # -----------------------------------------------------------------------
-Write-Step "Ensuring SQL firewall allows current client IP"
-$clientIp = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 10).Trim()
-Write-Ok "Detected public IP: $clientIp"
+Write-Step "Detecting public IP(s) — probing multiple endpoints for multi-NIC support"
+
+# Query several IP-detection services. Traffic may egress through different
+# NICs depending on routing/DNS, so each service may return a different IP.
+$ipEndpoints = @(
+    'https://api.ipify.org',
+    'https://ifconfig.me/ip',
+    'https://icanhazip.com',
+    'https://checkip.amazonaws.com'
+)
+$detectedIps = @()
+foreach ($endpoint in $ipEndpoints) {
+    try {
+        $ip = (Invoke-RestMethod -Uri $endpoint -TimeoutSec 5).Trim()
+        if ($ip -match '^\d{1,3}(\.\d{1,3}){3}$' -and $ip -notin $detectedIps) {
+            $detectedIps += $ip
+            Write-Ok "Detected IP: $ip (from $endpoint)"
+        }
+    }
+    catch {
+        # Non-fatal — some endpoints may be blocked by corporate firewalls
+    }
+}
+if ($detectedIps.Count -eq 0) {
+    Write-Warn "Could not detect any public IP — ensure your IP is already allowed in SQL firewall"
+}
+else {
+    Write-Ok "Unique egress IPs detected: $($detectedIps -join ', ')"
+}
 
 # Track all firewall rules we create so we can clean them up later
 $script:createdFwRules = @()
 
-$fwResult = Ensure-FirewallRule -Rg $ResourceGroup -Server $ServerName -Ip $clientIp
-if ($fwResult.Created) { $script:createdFwRules += $fwResult.Name }
+foreach ($ip in $detectedIps) {
+    $fwResult = Ensure-FirewallRule -Rg $ResourceGroup -Server $ServerName -Ip $ip
+    if ($fwResult.Created) { $script:createdFwRules += $fwResult.Name }
+}
 
 # -----------------------------------------------------------------------
 # Acquire Entra token
@@ -166,19 +199,27 @@ Write-Ok "Token acquired"
 # egress), a second firewall rule is created and the probe restarts.
 # -----------------------------------------------------------------------
 Write-Step "Testing SQL connectivity (with firewall propagation retries)"
-$probeResult = Test-SqlConnectivity -Server $ServerFQDN -Database $DatabaseName -Token $token
 
-if (-not $probeResult.Connected -and $probeResult.BlockedIp -and $probeResult.BlockedIp -ne $clientIp) {
-    # Azure SQL sees a different IP than api.ipify.org returned
-    # (common behind corporate VPN/proxy split tunnels)
-    Write-Warn "Azure SQL sees a different egress IP ($($probeResult.BlockedIp)) — adding firewall rule"
-    $fwResult2 = Ensure-FirewallRule -Rg $ResourceGroup -Server $ServerName -Ip $probeResult.BlockedIp
-    if ($fwResult2.Created) { $script:createdFwRules += $fwResult2.Name }
+# Loop handles the case where Azure SQL sees additional egress IPs we
+# missed (VPN split tunnels, load-balanced NAT gateways, etc.).
+# Each iteration adds the newly-discovered IP and retries — up to 3 rounds.
+$maxMismatchRounds = 3
+$knownIps = [System.Collections.Generic.HashSet[string]]::new([string[]]$detectedIps)
 
-    # Retry with the new rule in place
+for ($round = 0; $round -le $maxMismatchRounds; $round++) {
     $probeResult = Test-SqlConnectivity -Server $ServerFQDN -Database $DatabaseName -Token $token
-}
+    if ($probeResult.Connected) { break }
 
+    if ($probeResult.BlockedIp -and -not $knownIps.Contains($probeResult.BlockedIp)) {
+        Write-Warn "Azure SQL sees an additional egress IP ($($probeResult.BlockedIp)) — adding firewall rule (round $($round + 1)/$maxMismatchRounds)"
+        [void]$knownIps.Add($probeResult.BlockedIp)
+        $fwExtra = Ensure-FirewallRule -Rg $ResourceGroup -Server $ServerName -Ip $probeResult.BlockedIp
+        if ($fwExtra.Created) { $script:createdFwRules += $fwExtra.Name }
+    }
+    elseif ($round -eq $maxMismatchRounds) {
+        throw "Cannot connect to $ServerFQDN after $maxMismatchRounds IP-mismatch recovery rounds. Check VPN/network settings."
+    }
+}
 if (-not $probeResult.Connected) {
     throw "Cannot connect to $ServerFQDN after firewall configuration. Check VPN/network settings."
 }

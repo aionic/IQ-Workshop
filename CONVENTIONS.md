@@ -126,10 +126,10 @@ grep -rn "TODO(phase-3)" .   # Find all Phase 3 remaining tasks
 
 - Framework: custom eval runner (`evals/run_evals.py`) with PEP 723 inline dependencies
 - Runner: `uv run evals/run_evals.py --resource-group <rg>` (requires live Azure deployment)
-- Dataset: `evals/dataset.json` — 12 test cases across 6 categories
-- Scorers: `evals/scorers.py` — 5 independent scorers (tool_calls, grounding, format, safety, tool_call_args)
+- Dataset: `evals/dataset.json` — 17 test cases across 7 categories
+- Scorers: `evals/scorers.py` — 6 independent scorers (tool_calls, grounding, format, safety, tool_call_args, knowledge)
 - Results: timestamped JSON reports saved to `evals/results/` (gitignored)
-- Categories: triage (3), safety (4), governance (1), grounding (2), tool_use (1), consistency (1)
+- Categories: triage (3), safety (4), governance (1), grounding (2), tool_use (1), consistency (1), knowledge (5)
 - Target pass rate: ≥ 90% (LLM non-determinism may cause occasional failures)
 - Adding cases: append to `dataset.json` `cases` array with `id`, `category`, `prompt`, `expected_tools`, `assertions`
 - Adding scorers: add function to `scorers.py`, register in `ALL_SCORERS` list

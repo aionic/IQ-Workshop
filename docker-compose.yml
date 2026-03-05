@@ -7,6 +7,7 @@
 services:
   sql-server:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64   # SQL Server image is amd64-only; Rosetta required on Apple Silicon
     container_name: iq-sql-server
     environment:
       - ACCEPT_EULA=Y
@@ -17,7 +18,12 @@ services:
     volumes:
       - ./data:/docker-entrypoint-initdb.d
       - sql-data:/var/opt/mssql
-    entrypoint: /docker-entrypoint-initdb.d/local-init.sh
+    # Use bash -c with sed to strip Windows \r before executing.
+    # Without this, CRLF line endings from a Windows git clone cause
+    # "bad interpreter" or silent entrypoint failures.
+    entrypoint: >-
+      bash -c "sed -i 's/\r$//' /docker-entrypoint-initdb.d/local-init.sh
+      && bash /docker-entrypoint-initdb.d/local-init.sh"
     healthcheck:
       test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -Q "SELECT 1" -C -b
       interval: 10s
@@ -27,8 +33,8 @@ services:
 
   api-tools:
     build:
-      context: ./services/api-tools
-      dockerfile: Dockerfile
+      context: services/api-tools
+    platform: linux/amd64   # ODBC driver + mssql-tools are amd64-only
     container_name: iq-api-tools
     ports:
       - "8000:8000"

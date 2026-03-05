@@ -3,7 +3,7 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "location": {
-      "value": "eastus2"
+      "value": "westus3"
     },
     "environmentName": {
       "value": "dev"
@@ -37,6 +37,12 @@
     },
     "aiModelCapacity": {
       "value": 30
+    },
+    "uniqueSuffix": {
+      "value": ""
+    },
+    "skipRoleAssignments": {
+      "value": false
     }
   }
 }

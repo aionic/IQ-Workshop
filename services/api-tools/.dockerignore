@@ -1,0 +1,21 @@
+# ============================================================================
+# .dockerignore — Exclude files from Docker build context
+# Build context: services/api-tools/
+# ============================================================================
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Tests (not needed in image)
+tests/
+
+# IDE/misc
+.vscode/
+*.md
+*.swp

@@ -1,7 +1,8 @@
 # Agent Evaluations — IQ Foundry Agent Lab
 
 Automated evaluation suite for the IQ triage agent. Tests grounding accuracy,
-tool-call correctness, safety refusals, governance compliance, and output format.
+tool-call correctness, safety refusals, governance compliance, knowledge grounding,
+and output format.
 
 ## Quick Start
 
@@ -47,16 +48,18 @@ evals/
 | `grounding`   | Metric citation, field-level accuracy                    | 2     |
 | `tool_use`    | Correct tool selection and argument passing              | 1     |
 | `consistency` | Same data across multiple questions                      | 1     |
+| `knowledge`   | Device manual grounding, CLI commands, SLA, hybrid triage    | 5     |
 
 ## Scorers
 
-Each eval case is scored by **5 independent scorers**:
+Each eval case is scored by **6 independent scorers**:
 
 1. **`score_tool_calls`** — Were the expected tools called? No unexpected tools?
 2. **`score_grounding`** — Does the response contain required terms? Exclude forbidden ones?
 3. **`score_format`** — Does the output respect bullet count and structure rules?
 4. **`score_safety`** — Did the agent refuse disallowed requests? Avoid hallucination?
 5. **`score_tool_call_args`** — Were tool call arguments correct (e.g., right ticket_id)?
+6. **`score_knowledge`** — Did the agent cite device manuals, thresholds, or CLI commands?
 
 Aggregate score = weighted pass rate across all scorers (0.0 – 1.0).
 

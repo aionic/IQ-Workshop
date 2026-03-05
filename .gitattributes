@@ -1,0 +1,24 @@
+# ============================================================================
+# .gitattributes — Enforce consistent line endings across platforms
+#
+# Shell scripts MUST use LF (Unix) line endings or they will fail when
+# mounted into Linux containers via docker-compose volumes.
+# ============================================================================
+
+# Default: auto-detect
+* text=auto
+
+# Shell scripts — always LF (critical for Docker entrypoint)
+*.sh text eol=lf
+
+# Batch/PowerShell — always CRLF (Windows native)
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# SQL — LF preferred (executed inside Linux containers)
+*.sql text eol=lf
+
+# Docker — LF (executed inside Linux containers)
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf

@@ -10,7 +10,8 @@
 - Ensure Docker Desktop is running with at least **2 GB RAM** allocated to containers
 - SQL Server 2022 requires `ACCEPT_EULA=Y` and `MSSQL_SA_PASSWORD` with complexity (8+ chars, upper/lower/digit/symbol)
 - Check port 1433 is not already in use: `netstat -an | findstr 1433` (Windows) or `lsof -i :1433` (macOS/Linux)
-- If `local-init.sh` fails, ensure the file has LF line endings (not CRLF): `git config core.autocrlf input`
+- **CRLF line endings (most common on Windows):** If `local-init.sh` has Windows line endings, the entrypoint fails silently. The `docker-compose.yml` now auto-strips `\r` before running, but if you're on an older checkout: `git add --renormalize . && git checkout -- data/local-init.sh`
+- **Stale volume after a failed first run:** If the first start failed, the `sql-data` volume may contain corrupt state. Clear it with: `docker compose down -v && docker compose up`
 - Wait 15–20 seconds after SQL container starts before the init script runs
 
 ### Cannot connect to local SQL Server

@@ -6,10 +6,10 @@
 # ]
 # ///
 """
-create_agent.py — Register the IQ triage agent as a Foundry Prompt Agent.
+create_agent.py -- Register the IQ triage agent as a Foundry Prompt Agent.
 
 Uses the **new** Agent API (``AIProjectClient.agents.create_version``) which
-creates agents visible in the new Foundry portal experience — NOT classic
+creates agents visible in the new Foundry portal experience -- NOT classic
 Assistants-based agents that appear under "Classic Agents".
 
 Default mode (MCP):
@@ -24,19 +24,22 @@ Legacy mode (--legacy):
   ``chat_agent.py`` handles tool execution by calling the FastAPI service
   via HTTP.
 
+Knowledge grounding (optional):
+  Run ``upload_knowledge.py`` first to create a vector store, then pass
+  ``--vector-store-id <id>`` to attach FileSearchTool.  If omitted, the
+  script checks ``.agent-state.json`` for a previously saved vector_store_id.
+
 Usage (uv auto-installs deps via PEP 723 inline metadata):
 
     uv run scripts/create_agent.py --resource-group rg-iq-lab-dev
 
+With knowledge grounding (after running upload_knowledge.py):
+
+    uv run scripts/create_agent.py -g rg-iq-lab-dev --vector-store-id vs_abc123
+
 Legacy mode:
 
     uv run scripts/create_agent.py --resource-group rg-iq-lab-dev --legacy
-
-Or with explicit env vars:
-
-    $env:AZURE_AI_PROJECT_ENDPOINT = "https://<ai-services>.services.ai.azure.com/api/projects/<project>"
-    $env:TOOL_SERVICE_URL = "https://<container-app-fqdn>"
-    uv run scripts/create_agent.py
 """
 
 from __future__ import annotations
@@ -48,9 +51,11 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
+    FileSearchTool,
     FunctionTool,
     MCPTool,
     PromptAgentDefinition,
@@ -58,11 +63,10 @@ from azure.ai.projects.models import (
 from azure.identity import DefaultAzureCredential
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AGENT_NAME = "iq-triage-agent"
-
+AGENT_NAME_BASE = "iq-triage-agent"
 
 # ---------------------------------------------------------------------------
-# Function tool JSON schemas — used only in legacy mode.
+# Function tool JSON schemas -- used only in legacy mode.
 # These match the FastAPI endpoint signatures in services/api-tools/app/main.py.
 # ---------------------------------------------------------------------------
 
@@ -169,7 +173,20 @@ def _resolve_from_bicep(resource_group: str) -> dict[str, str]:
         "project_endpoint": outputs["foundryProjectEndpoint"]["value"],
         "tool_service_url": outputs["toolServiceUrl"]["value"],
         "model_deployment": outputs["aiModelDeploymentName"]["value"],
+        "unique_suffix": outputs.get("uniqueSuffix", {}).get("value", ""),
     }
+
+
+def _load_vector_store_id() -> str | None:
+    """Read vector_store_id from .agent-state.json (written by upload_knowledge.py)."""
+    state_path = REPO_ROOT / ".agent-state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text())
+            return state.get("vector_store_id")
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -182,40 +199,80 @@ def main() -> None:
     parser.add_argument(
         "--resource-group", "-g",
         default=os.environ.get("RESOURCE_GROUP", ""),
-        help="Azure RG to auto-discover Bicep outputs (default: use env vars).",
+        help="Azure RG to auto-discover Bicep outputs. Prompted if not set.",
     )
     parser.add_argument(
         "--model", "-m",
-        default=os.environ.get("AI_MODEL_DEPLOYMENT", "gpt-4.1-mini"),
-        help="Model deployment name (default: gpt-4.1-mini).",
+        default=os.environ.get("AI_MODEL_DEPLOYMENT", ""),
+        help="Model deployment name. Resolved from Bicep outputs if not set.",
+    )
+    parser.add_argument(
+        "--agent-name",
+        default="",
+        help="Explicit agent name (overrides auto-generated name).",
+    )
+    parser.add_argument(
+        "--suffix",
+        default=os.environ.get("UNIQUE_SUFFIX", ""),
+        help="Unique suffix appended to agent name (e.g. 'an42'). Auto-detected from Bicep outputs.",
     )
     parser.add_argument(
         "--legacy",
         action="store_true",
         help="Use legacy FunctionTool definitions instead of MCP.",
     )
+    parser.add_argument(
+        "--vector-store-id",
+        default="",
+        help="Vector store ID for FileSearchTool. Auto-read from .agent-state.json if not set.",
+    )
+    parser.add_argument(
+        "--no-knowledge",
+        action="store_true",
+        help="Skip attaching FileSearchTool even if a vector store exists.",
+    )
     args = parser.parse_args()
 
     # --- Resolve endpoints: either from Bicep outputs or env vars ---
-    if args.resource_group:
-        vals = _resolve_from_bicep(args.resource_group)
-        project_endpoint = vals["project_endpoint"]
-        tool_service_url = vals["tool_service_url"]
-        # CLI --model takes precedence; fall back to Bicep output
-        model_deployment = (
-            args.model
-            if args.model != parser.get_default("model")
-            else vals["model_deployment"]
-        )
-    else:
-        project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "")
-        tool_service_url = os.environ.get("TOOL_SERVICE_URL", "")
-        model_deployment = args.model
-
-    if not project_endpoint:
-        print("ERROR: Provide --resource-group or set AZURE_AI_PROJECT_ENDPOINT.", file=sys.stderr)
+    if not args.resource_group:
+        # Try env var, then prompt interactively
+        args.resource_group = os.environ.get("RESOURCE_GROUP", "")
+    if not args.resource_group:
+        args.resource_group = input("Resource group (e.g. rg-iq-lab-dev): ").strip()
+    if not args.resource_group:
+        print("ERROR: --resource-group is required.", file=sys.stderr)
         sys.exit(1)
 
+    vals = _resolve_from_bicep(args.resource_group)
+    project_endpoint = vals["project_endpoint"]
+    tool_service_url = vals["tool_service_url"]
+    # CLI --model takes precedence; fall back to Bicep output
+    model_deployment = args.model or vals["model_deployment"]
+    # Auto-detect suffix from Bicep outputs (unless explicitly provided)
+    if not args.suffix:
+        args.suffix = vals.get("unique_suffix", "")
+
+    if not project_endpoint:
+        print("ERROR: Bicep outputs missing 'foundryProjectEndpoint'.", file=sys.stderr)
+        sys.exit(1)
+    if not tool_service_url:
+        print("ERROR: Bicep outputs missing 'toolServiceUrl'.", file=sys.stderr)
+        sys.exit(1)
+    if not model_deployment:
+        model_deployment = input("Model deployment name (e.g. gpt-4.1-mini): ").strip()
+    if not model_deployment:
+        print("ERROR: --model is required when not in Bicep outputs.", file=sys.stderr)
+        sys.exit(1)
+
+    # --- Derive unique agent name ---
+    if args.agent_name:
+        agent_name = args.agent_name
+    elif args.suffix:
+        agent_name = f"{AGENT_NAME_BASE}-{args.suffix}"
+    else:
+        agent_name = AGENT_NAME_BASE
+
+    print(f"Agent:    {agent_name}")
     print(f"Project:  {project_endpoint}")
     print(f"Tools:    {tool_service_url}")
     print(f"Model:    {model_deployment}")
@@ -247,10 +304,25 @@ def main() -> None:
         credential=credential,
     )
 
+    # --- Attach FileSearchTool if a vector store is available ---
+    vector_store_id: str | None = None
+    if not args.no_knowledge:
+        vector_store_id = args.vector_store_id or _load_vector_store_id()
+        if vector_store_id:
+            file_search_tool = FileSearchTool(vector_store_ids=[vector_store_id])
+            tools.append(file_search_tool)
+            print(f"  FileSearchTool attached (vector_store: {vector_store_id})")
+        else:
+            print("  No vector store found. Run upload_knowledge.py first for knowledge grounding.")
+        print()
+    else:
+        print("Knowledge skipped (--no-knowledge).")
+        print()
+
     # Create prompt agent version (new-style — visible in Foundry portal)
     agent = project_client.agents.create_version(
-        agent_name=AGENT_NAME,
-        description="IQ network triage agent — triages anomalies and proposes safe remediations.",
+        agent_name=agent_name,
+        description="IQ network triage agent - triages anomalies and proposes safe remediations.",
         definition=PromptAgentDefinition(
             model=model_deployment,
             instructions=system_prompt,
@@ -259,21 +331,27 @@ def main() -> None:
         ),
     )
     print()
-    print(f"Agent created (new-style Prompt Agent):")
-    print(f"  Name:    {agent.name}")
-    print(f"  Version: {agent.version}")
-    print(f"  ID:      {agent.id}")
+    print("Agent created (new-style Prompt Agent):")
+    # AgentVersionObject fields: agent_name, version, id
+    a_name = getattr(agent, "agent_name", None) or getattr(agent, "name", agent_name)
+    a_version = getattr(agent, "version", "unknown")
+    a_id = getattr(agent, "id", "unknown")
+    print(f"  Name:    {a_name}")
+    print(f"  Version: {a_version}")
+    print(f"  ID:      {a_id}")
     print()
 
     # Save agent state for use by chat_agent.py
-    state = {
-        "agent_name": agent.name,
-        "agent_version": agent.version,
+    state: dict[str, Any] = {
+        "agent_name": a_name,
+        "agent_version": a_version,
         "tool_service_url": tool_service_url,
         "tool_mode": "legacy" if args.legacy else "mcp",
     }
     if not args.legacy:
         state["mcp_server_url"] = f"{tool_service_url}/mcp"
+    if vector_store_id:
+        state["vector_store_id"] = vector_store_id
     state_path = REPO_ROOT / ".agent-state.json"
     state_path.write_text(json.dumps(state, indent=2))
     print(f"Agent state saved to {state_path}")

@@ -75,6 +75,107 @@ SERVER_FQDN="$SERVER_NAME.database.windows.net"
 ok "Server: $SERVER_FQDN / Database: $DATABASE_NAME"
 
 # ---------------------------------------------------------------------------
+# Ensure client IP is allowed through SQL firewall
+# ---------------------------------------------------------------------------
+# Azure SQL blocks connections from IPs not in its firewall allow-list.
+# This step auto-detects your public IP, creates a temporary firewall
+# rule, then probes connectivity with retries (rules can take up to 5 min
+# to propagate). If the probe reveals a *different* blocked IP (common
+# behind corporate VPN/proxy where Azure traffic egresses differently
+# than general internet), a second rule is created for that IP.
+# All temporary rules are removed at the end of the script.
+# ---------------------------------------------------------------------------
+CREATED_FW_RULES=()
+
+ensure_firewall_rule() {
+    local rg="$1" server="$2" ip="$3"
+    local rule_name="deploy-script-${ip//./-}"
+    if az sql server firewall-rule show \
+        --resource-group "$rg" --server "$server" \
+        --name "$rule_name" --output tsv &>/dev/null; then
+        ok "Firewall rule '$rule_name' already exists"
+    else
+        az sql server firewall-rule create \
+            --resource-group "$rg" --server "$server" \
+            --name "$rule_name" \
+            --start-ip-address "$ip" --end-ip-address "$ip" \
+            --output none
+        ok "Firewall rule '$rule_name' created for $ip"
+        CREATED_FW_RULES+=("$rule_name")
+    fi
+}
+
+cleanup_firewall_rules() {
+    if [[ ${#CREATED_FW_RULES[@]} -gt 0 ]]; then
+        step "Removing temporary SQL firewall rule(s)"
+        for rule_name in "${CREATED_FW_RULES[@]}"; do
+            az sql server firewall-rule delete \
+                --resource-group "$RESOURCE_GROUP" --server "$SERVER_NAME" \
+                --name "$rule_name" --output none 2>/dev/null || true
+            ok "Firewall rule '$rule_name' removed"
+        done
+    fi
+}
+trap cleanup_firewall_rules EXIT
+
+step "Detecting public IP(s) — probing multiple endpoints for multi-NIC support"
+
+# Query several IP-detection services. Traffic may egress through different
+# NICs depending on routing/DNS, so each service may return a different IP.
+DETECTED_IPS=()
+for endpoint in https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com https://checkip.amazonaws.com; do
+    ip=$(curl -fsS --max-time 5 "$endpoint" 2>/dev/null | tr -d '[:space:]' || true)
+    if [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        # Add only if not already in the list
+        local_dup=false
+        for existing in "${DETECTED_IPS[@]+"${DETECTED_IPS[@]}"}"; do
+            [[ "$existing" == "$ip" ]] && local_dup=true && break
+        done
+        if [[ "$local_dup" == "false" ]]; then
+            DETECTED_IPS+=("$ip")
+            ok "Detected IP: $ip (from $endpoint)"
+        fi
+    fi
+done
+
+if [[ ${#DETECTED_IPS[@]} -eq 0 ]]; then
+    warn "Could not detect any public IP — ensure your IP is already allowed in SQL firewall"
+else
+    ok "Unique egress IPs detected: ${DETECTED_IPS[*]}"
+    for ip in "${DETECTED_IPS[@]}"; do
+        ensure_firewall_rule "$RESOURCE_GROUP" "$SERVER_NAME" "$ip"
+    done
+fi
+
+# ---------------------------------------------------------------------------
+# Connectivity test with retry + IP-mismatch recovery
+# ---------------------------------------------------------------------------
+# Firewall rule propagation can take up to 5 minutes. This function retries
+# every 15 seconds. If the error reveals a different blocked IP (VPN/proxy
+# egress), it returns that IP so the caller can create another rule.
+# ---------------------------------------------------------------------------
+test_sql_connectivity() {
+    local max_retries=8 delay=15
+    for (( i=1; i<=max_retries; i++ )); do
+        local output
+        output=$(run_sql_query "SELECT 1 AS probe" 2>&1) && return 0
+        # Azure SQL error: "Client with IP address 'x.x.x.x' is not allowed"
+        if [[ "$output" =~ Client\ with\ IP\ address\ \'([0-9.]+)\' ]]; then
+            BLOCKED_IP="${BASH_REMATCH[1]}"
+            warn "Attempt $i/$max_retries — blocked IP: $BLOCKED_IP"
+            return 1
+        fi
+        if (( i < max_retries )); then
+            echo -e "  ${YELLOW}Attempt $i/$max_retries — waiting ${delay}s for firewall propagation...${NC}"
+            sleep "$delay"
+        else
+            warn "All $max_retries connectivity attempts failed"
+            return 1
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
 # Check sqlcmd availability and detect variant
 # ---------------------------------------------------------------------------
 if ! command -v sqlcmd &>/dev/null; then
@@ -139,6 +240,52 @@ run_sql_query() {
             -C 2>&1
     fi
 }
+
+# ---------------------------------------------------------------------------
+# Connectivity probe with retry + IP-mismatch recovery
+# ---------------------------------------------------------------------------
+step "Testing SQL connectivity (with firewall propagation retries)"
+
+# Loop handles the case where Azure SQL sees additional egress IPs we
+# missed (VPN split tunnels, load-balanced NAT gateways, etc.).
+# Each iteration adds the newly-discovered IP and retries — up to 3 rounds.
+# KNOWN_IPS tracks all IPs we've already created firewall rules for.
+KNOWN_IPS=("${DETECTED_IPS[@]+"${DETECTED_IPS[@]}"}")
+MAX_MISMATCH_ROUNDS=3
+CONNECTED=false
+
+for (( round=0; round<=MAX_MISMATCH_ROUNDS; round++ )); do
+    BLOCKED_IP=""
+    if test_sql_connectivity; then
+        CONNECTED=true
+        break
+    fi
+
+    if [[ -n "$BLOCKED_IP" ]]; then
+        # Check if this IP is already known
+        already_known=false
+        for known in "${KNOWN_IPS[@]+"${KNOWN_IPS[@]}"}"; do
+            [[ "$known" == "$BLOCKED_IP" ]] && already_known=true && break
+        done
+        if [[ "$already_known" == "false" ]]; then
+            warn "Azure SQL sees an additional egress IP ($BLOCKED_IP) — adding firewall rule (round $((round + 1))/$MAX_MISMATCH_ROUNDS)"
+            KNOWN_IPS+=("$BLOCKED_IP")
+            ensure_firewall_rule "$RESOURCE_GROUP" "$SERVER_NAME" "$BLOCKED_IP"
+            continue
+        fi
+    fi
+
+    if (( round == MAX_MISMATCH_ROUNDS )); then
+        echo "ERROR: Cannot connect to $SERVER_FQDN after $MAX_MISMATCH_ROUNDS IP-mismatch recovery rounds. Check VPN/network settings." >&2
+        exit 1
+    fi
+done
+
+if [[ "$CONNECTED" != "true" ]]; then
+    echo "ERROR: Cannot connect to $SERVER_FQDN after firewall configuration. Check VPN/network settings." >&2
+    exit 1
+fi
+ok "SQL connectivity confirmed"
 
 # ---------------------------------------------------------------------------
 # Run schema.sql
