@@ -1,8 +1,11 @@
 # Phase 6 — Feature Enhancements (Planning)
 
 > **Status:** Section B (Knowledge Grounding) complete — all B.1–B.6 items done.
+> Section E (Startup Seed) reverted — container-based seeding removed; using `seed-database.ps1`.
+> Section F (Docker Multi-Stage Build) reverted — single-stage Dockerfile, narrowed build context.
+> Section G (Unique Agent Names) complete — suffix from Bicep `uniqueSuffix`.
 > Section B.5 live hybrid grounding tests require Azure deployment.
-> Sections A, C–H remain in planning/partial state.
+> Sections A, C–D, H–K remain in planning/partial state.
 
 ---
 
@@ -217,7 +220,96 @@ threads/runs API to the new Responses API (`openai_client.responses.create()` /
 
 ---
 
-## E. Bump Python Base Image
+## E. ~~Startup Seed~~ — Removed (Script-Based Seeding)
+
+**Status:** Reverted / Removed
+
+The container-based startup seed approach (`SEED_ON_STARTUP`, `run_seed_if_needed()`,
+SQL files baked into the Docker image) was attempted but introduced reliability issues:
+- `apt-get autoremove` in the multi-stage Dockerfile stripped shared libraries that
+  the ODBC driver depends on, causing `Can't open lib 'libmsodbcsql-18.6.so.1.1'`
+- Timing issues with managed identity token availability at container startup
+- The added complexity (env vars, SQL files in image, startup ordering) was not
+  worth the benefit vs. a simple PowerShell script
+
+**Current approach:** `seed-database.ps1 -GrantPermissions` runs from the deployer's
+machine (or CI) after infrastructure is up. This is simpler, debuggable, and doesn't
+couple the application image to the database schema.
+
+All seed-related code has been removed:
+- `db.py`: `run_seed_if_needed()`, `_split_sql_batches()`, `_tables_exist()`, etc. deleted
+- `main.py`: Seed call removed from lifespan
+- `Dockerfile`: SQL files no longer baked into image; build context narrowed to `services/api-tools/`
+- `.env.example` / `docker-compose.yml`: `SEED_ON_STARTUP` env var removed
+- `test_startup_seed.py`: Deleted (16 tests)
+- All 6 test files: `mock("app.db.run_seed_if_needed")` removed from fixtures
+
+---
+
+## F. ~~Docker Multi-Stage Build~~ — Reverted to Single-Stage
+
+**Status:** Reverted
+
+The 3-stage multi-stage build introduced a subtle bug: `apt-get autoremove` in the
+system-deps stage removed shared libraries (`libkrb5`, `libgnutls`, etc.) that the
+ODBC 18 driver's `libmsodbcsql-18.6.so.1.1` depends on at runtime. The `.so` file
+was present but couldn't load its transitive dependencies, causing every DB connection
+to fail with `Can't open lib ... file not found`.
+
+Reverted to a clean single-stage Dockerfile with best-practice improvements:
+- `PYTHONDONTWRITEBYTECODE=1` and `PYTHONUNBUFFERED=1`
+- `--auto-remove` used safely (tied to `apt-get purge` of build-only packages)
+- Build context narrowed to `services/api-tools/` (no longer needs repo root)
+- `uv` binary copied from `ghcr.io/astral-sh/uv:0.7` (pinned)
+
+---
+
+## G. Unique Agent Names per Deployment
+
+**Status:** Done
+
+Agent names now include the Bicep `uniqueSuffix` (e.g., `iq-triage-agent-an42`) so
+multiple workshop participants can deploy into the same Foundry project without
+name collisions.
+
+### How It Works
+
+1. `infra/bicep/main.bicep` exposes `output uniqueSuffix string = uniqueSuffix`
+2. `scripts/create_agent.py` reads the suffix from Bicep outputs and constructs
+   `{AGENT_NAME_BASE}-{suffix}` (e.g., `iq-triage-agent-an42`)
+3. `register-agent.ps1` / `.sh` extract the suffix and pass `--suffix` to `create_agent.py`
+4. The suffixed name is saved to `.agent-state.json` → consumed by `chat_agent.py`
+   and `run_evals.py` automatically
+
+### CLI Overrides
+
+- `--agent-name <full-name>` — explicit override, ignores suffix
+- `--suffix <value>` — manual suffix (auto-detected from Bicep if omitted)
+- `UNIQUE_SUFFIX` env var — fallback when not using `--resource-group`
+
+### Checklist
+
+- [x] Add `uniqueSuffix` Bicep output
+- [x] Rename `AGENT_NAME` → `AGENT_NAME_BASE` in `create_agent.py`
+- [x] Add `--agent-name` / `--suffix` CLI args to `create_agent.py`
+- [x] Wire suffix into `create_version()` call and `.agent-state.json`
+- [x] Update `register-agent.ps1` — extract suffix, pass `--suffix`
+- [x] Update `register-agent.sh` — extract suffix, pass `--suffix`
+- [x] Verify `chat_agent.py` / `run_evals.py` auto-detect from state file
+- [x] All 72 tests pass
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `infra/bicep/main.bicep` | Added `output uniqueSuffix` |
+| `scripts/create_agent.py` | `AGENT_NAME_BASE`, `--suffix`/`--agent-name` args, suffix wiring |
+| `scripts/register-agent.ps1` | Extract `uniqueSuffix`, pass `--suffix` to create_agent.py |
+| `scripts/register-agent.sh` | Extract `uniqueSuffix`, pass `--suffix` to create_agent.py |
+
+---
+
+## H. Bump Python Base Image
 
 Dependabot PR #4 suggests bumping `python:3.12-slim` → `python:3.14-slim` in the
 Dockerfile. This is low-risk but requires testing.
@@ -229,7 +321,7 @@ Dockerfile. This is low-risk but requires testing.
 
 ---
 
-## F. Private Networking Mode
+## I. Private Networking Mode
 
 The infrastructure supports `networkMode=private` but it hasn't been exercised
 end-to-end yet.
@@ -244,7 +336,7 @@ end-to-end yet.
 
 ---
 
-## G. Local Development Smoke Test
+## J. Local Development Smoke Test
 
 The `smoke-test.ps1` targets the Azure deployment. A local equivalent confirming
 `docker compose up` works end-to-end hasn't been validated with the full 8/8 test suite.
@@ -258,7 +350,7 @@ The `smoke-test.ps1` targets the Azure deployment. A local equivalent confirming
 
 ---
 
-## H. Teams Integration (Real Webhook)
+## K. Teams Integration (Real Webhook)
 
 The `post_teams_summary` tool currently uses a stub. Replace with a real
 Teams webhook or Graph API integration.

@@ -9,7 +9,7 @@
     Optionally runs grant-permissions.sql to grant managed identity access.
 
 .PARAMETER ResourceGroup
-    Resource group containing the SQL server (default: rg-iq-lab-dev).
+    Resource group containing the SQL server. Resolved from RESOURCE_GROUP env var or prompted.
 
 .PARAMETER ServerName
     SQL server name without .database.windows.net suffix (default: auto-detected from RG).
@@ -31,7 +31,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$ResourceGroup = "rg-iq-lab-dev",
+    [string]$ResourceGroup = "",
     [string]$ServerName,
     [string]$DatabaseName = "sqldb-iq",
     [switch]$GrantPermissions
@@ -39,6 +39,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Resolve resource group: parameter > env var > prompt
+if (-not $ResourceGroup) { $ResourceGroup = $env:RESOURCE_GROUP }
+if (-not $ResourceGroup) { $ResourceGroup = Read-Host "Resource group (e.g. rg-iq-lab-dev)" }
+if (-not $ResourceGroup) { throw "Resource group is required. Pass -ResourceGroup or set RESOURCE_GROUP env var." }
 
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $DataDir = Join-Path $RepoRoot "data"

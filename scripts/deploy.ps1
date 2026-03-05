@@ -10,7 +10,7 @@
     seeds the database and grants managed identity permissions.
 
 .PARAMETER ResourceGroup
-    Target resource group name (default: rg-iq-lab-dev).
+    Target resource group name. Resolved from RESOURCE_GROUP env var or prompted.
 
 .PARAMETER Location
     Azure region (default: westus3).
@@ -45,7 +45,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$ResourceGroup = "rg-iq-lab-dev",
+    [string]$ResourceGroup = "",
     [string]$Location = "westus3",
     [string]$ParameterFile = "$PSScriptRoot\..\infra\bicep\parameters.dev.json",
     [string]$ImageTag = "v$(Get-Date -Format 'yyyyMMdd-HHmm')",
@@ -58,6 +58,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Resolve resource group: parameter > env var > prompt
+if (-not $ResourceGroup) { $ResourceGroup = $env:RESOURCE_GROUP }
+if (-not $ResourceGroup) { $ResourceGroup = Read-Host "Resource group (e.g. rg-iq-lab-dev)" }
+if (-not $ResourceGroup) { throw "Resource group is required. Pass -ResourceGroup or set RESOURCE_GROUP env var." }
 
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $BicepFile = Join-Path $RepoRoot "infra\bicep\main.bicep"
@@ -232,9 +237,9 @@ if (-not $SkipImage) {
     $imageFull = "$acrName.azurecr.io/iq-tools:$ImageTag"
 
     Write-Step "Building container image: $imageFull"
-    Push-Location $ApiToolsDir
+    Push-Location $RepoRoot
     try {
-        az acr build --registry $acrName --image "iq-tools:$ImageTag" --platform linux/amd64 .
+        az acr build --registry $acrName --image "iq-tools:$ImageTag" --platform linux/amd64 services/api-tools
         if ($LASTEXITCODE -ne 0) {
             throw "ACR build failed (exit code $LASTEXITCODE). Review errors above."
         }
@@ -275,12 +280,36 @@ else {
 # every DB-dependent endpoint returns 503 "db unavailable".
 # -----------------------------------------------------------------------
 if ($SeedDatabase) {
-    Write-Step "Seeding Azure SQL database (with MI permissions)"
+    # ---------------------------------------------------------------
+    # Primary seeding method: PowerShell seed-database.ps1
+    # Connects to Azure SQL via Entra token (your az login identity),
+    # runs schema.sql + seed.sql, and grants MI permissions in one shot.
+    # ---------------------------------------------------------------
+    Write-Step "Seeding database and granting MI permissions (via seed-database.ps1)"
     & "$PSScriptRoot\seed-database.ps1" -ResourceGroup $ResourceGroup -GrantPermissions
+
     # Give the Container App a few seconds to pick up DB connectivity
-    # after MI permissions are granted (token cache refresh)
-    Write-Host "  Waiting 10s for managed identity token propagation..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 10
+    # after MI permissions are granted (token cache refresh).
+    Write-Host "  Waiting 15s for managed identity token propagation..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 15
+
+    # Resolve Container App name and restart revision to pick up fresh MI token
+    if (-not $caName) {
+        $caName = if ($outputs) {
+            $fqdn = ($outputs.toolServiceUrl.value -replace '^https://', '')
+            ($fqdn -split '\.')[0]
+        }
+        else {
+            (az containerapp list -g $ResourceGroup --query "[0].name" -o tsv)
+        }
+    }
+    $latestRev = (az containerapp revision list --name $caName --resource-group $ResourceGroup --query "sort_by([],&properties.createdTime)[-1].name" -o tsv)
+    if ($latestRev) {
+        Write-Step "Restarting Container App revision to pick up MI credentials"
+        az containerapp revision restart --name $caName --resource-group $ResourceGroup --revision $latestRev --output none 2>$null
+        Write-Host "  Waiting 30s for revision restart..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 30
+    }
 }
 
 # -----------------------------------------------------------------------

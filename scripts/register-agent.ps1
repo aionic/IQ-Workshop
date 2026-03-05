@@ -4,14 +4,15 @@
     Register the IQ triage agent in Azure AI Foundry Agent Service.
 
 .DESCRIPTION
-    Resolves all values from the Bicep deployment outputs and creates the Foundry
-    prompt agent via Agent Framework v2 SDK (scripts/create_agent.py) using uv run.
-    Default mode is MCP (Streamable HTTP) — the Foundry Agent Service calls the
-    MCP server at /mcp directly. Legacy mode uses FunctionTool definitions with
-    client-side dispatch via chat_agent.py --legacy.
+    Two-step workflow:
+      Step 1: Upload knowledge files to a Foundry vector store (upload_knowledge.py).
+      Step 2: Create the Foundry prompt agent with MCP tools (create_agent.py).
 
-    If uv is not installed, falls back to displaying manual registration
-    instructions for the AI Foundry portal.
+    Both steps resolve values from Bicep deployment outputs automatically.
+    The vector store ID is persisted in .agent-state.json between steps.
+
+    Use -SkipKnowledge to skip the knowledge upload step (e.g. if already done).
+    Use -ManualOnly to display portal instructions instead of SDK creation.
 
     Prerequisites:
       - Azure CLI logged in with access to the AI Foundry project
@@ -19,19 +20,22 @@
       - uv installed (https://docs.astral.sh/uv/getting-started/installation/)
 
 .PARAMETER ResourceGroup
-    Resource group (default: rg-iq-lab-dev).
+    Resource group. Resolved from RESOURCE_GROUP env var or prompted.
 
 .PARAMETER AgentName
     Name for the agent (default: iq-triage-agent).
 
+.PARAMETER SkipKnowledge
+    Skip the knowledge upload step (use existing vector store from .agent-state.json).
+
 .PARAMETER ManualOnly
-    Skip SDK agent creation; only show portal instructions and patched spec.
+    Skip SDK agent creation; only show portal instructions.
 
 .EXAMPLE
     .\register-agent.ps1
 
 .EXAMPLE
-    .\register-agent.ps1 -ManualOnly
+    .\register-agent.ps1 -SkipKnowledge
 
 .EXAMPLE
     .\register-agent.ps1 -ResourceGroup rg-iq-lab-staging
@@ -39,8 +43,9 @@
 
 [CmdletBinding()]
 param(
-    [string]$ResourceGroup = "rg-iq-lab-dev",
+    [string]$ResourceGroup = "",
     [string]$AgentName = "iq-triage-agent",
+    [switch]$SkipKnowledge,
     [switch]$ManualOnly
 )
 
@@ -52,6 +57,17 @@ $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 function Write-Step([string]$msg) { Write-Host "`n===> $msg" -ForegroundColor Cyan }
 function Write-Ok([string]$msg) { Write-Host "  OK: $msg" -ForegroundColor Green }
 function Write-Warn([string]$msg) { Write-Host "  WARN: $msg" -ForegroundColor Yellow }
+
+# -----------------------------------------------------------------------
+# Resolve resource group — from parameter, env var, or prompt
+# -----------------------------------------------------------------------
+if (-not $ResourceGroup) { $ResourceGroup = $env:RESOURCE_GROUP }
+if (-not $ResourceGroup) {
+    $ResourceGroup = Read-Host "Resource group (e.g. rg-iq-lab-dev)"
+}
+if (-not $ResourceGroup) {
+    throw "Resource group is required. Pass -ResourceGroup or set RESOURCE_GROUP env var."
+}
 
 # -----------------------------------------------------------------------
 # Resolve deployment outputs from Bicep
@@ -76,12 +92,14 @@ $aiServicesEndpoint = $outputs.aiServicesEndpoint.value
 $projectEndpoint    = $outputs.foundryProjectEndpoint.value
 $projectName        = $outputs.foundryProjectName.value
 $modelDeployment    = $outputs.aiModelDeploymentName.value
+$uniqueSuffix       = if ($outputs.uniqueSuffix) { $outputs.uniqueSuffix.value } else { "" }
 
 Write-Ok "Tool Service:     $toolServiceUrl"
 Write-Ok "AI Services:      $aiServicesName"
 Write-Ok "Foundry Project:  $projectName"
 Write-Ok "Project Endpoint: $projectEndpoint"
 Write-Ok "Model:            $modelDeployment"
+Write-Ok "Unique Suffix:    $uniqueSuffix"
 
 # Health check
 try {
@@ -107,30 +125,55 @@ $systemPrompt = Get-Content $systemPromptPath -Raw
 Write-Ok "System prompt loaded ($($systemPrompt.Length) chars)"
 
 # -----------------------------------------------------------------------
-# Create agent via SDK (unless -ManualOnly)
+# Step 1: Upload knowledge files (unless -SkipKnowledge)
 # -----------------------------------------------------------------------
 if (-not $ManualOnly) {
-    Write-Step "Creating agent via Foundry Agent SDK (uv run)"
-
     $uvPath = Get-Command uv -ErrorAction SilentlyContinue
     if (-not $uvPath) {
-        Write-Warn "uv not found — install from https://docs.astral.sh/uv/getting-started/installation/"
+        Write-Warn "uv not found -- install from https://docs.astral.sh/uv/getting-started/installation/"
         Write-Warn "Falling back to manual instructions below."
         $ManualOnly = $true
     }
-    else {
-        $createScript = Join-Path $RepoRoot "scripts\create_agent.py"
-        Write-Host "  Running: uv run $createScript --resource-group $ResourceGroup"
-        uv run $createScript --resource-group $ResourceGroup
+}
 
-        if ($LASTEXITCODE -eq 0) {
-            Write-Ok "Agent created successfully"
-        }
-        else {
-            Write-Warn "Agent creation failed (exit code $LASTEXITCODE)"
-            Write-Warn "Displaying manual instructions instead."
-            $ManualOnly = $true
-        }
+if (-not $ManualOnly -and -not $SkipKnowledge) {
+    Write-Step "Step 1: Uploading knowledge files to vector store"
+
+    $uploadScript = Join-Path $RepoRoot "scripts\upload_knowledge.py"
+    Write-Host "  Running: uv run $uploadScript --resource-group $ResourceGroup"
+    uv run $uploadScript --resource-group $ResourceGroup
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Knowledge upload complete"
+    }
+    else {
+        Write-Warn "Knowledge upload failed (exit code $LASTEXITCODE)"
+        Write-Warn "Agent will be created without FileSearchTool."
+    }
+}
+elseif (-not $ManualOnly) {
+    Write-Step "Step 1: Knowledge upload skipped (-SkipKnowledge)"
+    Write-Host "  Using existing vector store from .agent-state.json (if present)."
+}
+
+# -----------------------------------------------------------------------
+# Step 2: Create agent via SDK (unless -ManualOnly)
+# -----------------------------------------------------------------------
+if (-not $ManualOnly) {
+    Write-Step "Step 2: Creating agent via Foundry Agent SDK"
+
+    $createScript = Join-Path $RepoRoot "scripts\create_agent.py"
+    $suffixArgs = if ($uniqueSuffix) { @("--suffix", $uniqueSuffix) } else { @() }
+    Write-Host "  Running: uv run $createScript --resource-group $ResourceGroup $($suffixArgs -join ' ')"
+    uv run $createScript --resource-group $ResourceGroup @suffixArgs
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Agent created successfully"
+    }
+    else {
+        Write-Warn "Agent creation failed (exit code $LASTEXITCODE)"
+        Write-Warn "Displaying manual instructions instead."
+        $ManualOnly = $true
     }
 }
 

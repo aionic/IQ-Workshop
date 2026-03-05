@@ -599,3 +599,4 @@ output aiServicesName string = aiServices.name
 output aiModelDeploymentName string = aiModelDeployment.name
 output foundryProjectEndpoint string = 'https://${aiServicesName}.services.ai.azure.com/api/projects/${foundryProjectName}'
 output foundryProjectName string = foundryProject.name
+output uniqueSuffix string = uniqueSuffix

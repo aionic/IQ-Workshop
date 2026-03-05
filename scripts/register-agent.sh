@@ -87,12 +87,14 @@ AI_SERVICES_ENDPOINT=$(get_output "aiServicesEndpoint")
 PROJECT_ENDPOINT=$(get_output "foundryProjectEndpoint")
 PROJECT_NAME=$(get_output "foundryProjectName")
 MODEL_DEPLOYMENT=$(get_output "aiModelDeploymentName")
+UNIQUE_SUFFIX=$(get_output "uniqueSuffix")
 
 ok "Tool Service:     $TOOL_SERVICE_URL"
 ok "AI Services:      $AI_SERVICES_NAME"
 ok "Foundry Project:  $PROJECT_NAME"
 ok "Project Endpoint: $PROJECT_ENDPOINT"
 ok "Model:            $MODEL_DEPLOYMENT"
+ok "Unique Suffix:    $UNIQUE_SUFFIX"
 
 # ---------------------------------------------------------------------------
 # Health check
@@ -136,9 +138,13 @@ if [[ "$MANUAL_ONLY" == "false" ]]; then
         MANUAL_ONLY=true
     else
         CREATE_SCRIPT="$REPO_ROOT/scripts/create_agent.py"
-        echo "  Running: uv run $CREATE_SCRIPT --resource-group $RESOURCE_GROUP"
+        SUFFIX_ARGS=()
+        if [[ -n "$UNIQUE_SUFFIX" ]]; then
+            SUFFIX_ARGS=("--suffix" "$UNIQUE_SUFFIX")
+        fi
+        echo "  Running: uv run $CREATE_SCRIPT --resource-group $RESOURCE_GROUP ${SUFFIX_ARGS[*]}"
 
-        if uv run "$CREATE_SCRIPT" --resource-group "$RESOURCE_GROUP"; then
+        if uv run "$CREATE_SCRIPT" --resource-group "$RESOURCE_GROUP" "${SUFFIX_ARGS[@]}"; then
             ok "Agent created successfully"
         else
             warn "Agent creation failed (exit code $?)"

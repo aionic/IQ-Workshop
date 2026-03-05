@@ -8,7 +8,7 @@
     Returns exit code 0 if all pass, 1 if any fail.
 
 .PARAMETER ResourceGroup
-    Resource group (default: rg-iq-lab-dev).
+    Resource group. Resolved from RESOURCE_GROUP env var or prompted (only needed if -BaseUrl not set).
 
 .PARAMETER BaseUrl
     Override the tool service URL (auto-detected from Container App if omitted).
@@ -22,12 +22,19 @@
 
 [CmdletBinding()]
 param(
-    [string]$ResourceGroup = "rg-iq-lab-dev",
+    [string]$ResourceGroup = "",
     [string]$BaseUrl
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Resolve resource group: parameter > env var > prompt (only needed if no -BaseUrl)
+if (-not $BaseUrl) {
+    if (-not $ResourceGroup) { $ResourceGroup = $env:RESOURCE_GROUP }
+    if (-not $ResourceGroup) { $ResourceGroup = Read-Host "Resource group (e.g. rg-iq-lab-dev)" }
+    if (-not $ResourceGroup) { throw "Resource group is required when -BaseUrl is not specified." }
+}
 
 function Write-Step([string]$msg) { Write-Host "`n===> $msg" -ForegroundColor Cyan }
 function Write-Pass([string]$msg) { Write-Host "  PASS: $msg" -ForegroundColor Green }

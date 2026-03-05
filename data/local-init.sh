@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # local-init.sh — Initialize local SQL Server container with schema + seed data
-# Used by docker-compose.yml as the SQL Server entrypoint wrapper
+# Used by docker-compose.yml as the SQL Server entrypoint wrappe
 # ============================================================================
 set -e
 
