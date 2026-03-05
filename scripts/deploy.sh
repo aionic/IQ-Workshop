@@ -19,7 +19,7 @@ export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
-RESOURCE_GROUP="rg-iq-lab-dev"
+RESOURCE_GROUP="${RESOURCE_GROUP:-}"
 LOCATION="westus3"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -40,7 +40,7 @@ usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  -g, --resource-group NAME   Resource group (default: rg-iq-lab-dev)"
+    echo "  -g, --resource-group NAME   Resource group (env: RESOURCE_GROUP, or prompted)"
     echo "  -l, --location REGION       Azure region (default: westus3)"
     echo "  -p, --parameters FILE       Bicep parameters file"
     echo "  -t, --image-tag TAG         Docker image tag (default: timestamp)"
@@ -68,6 +68,15 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1" >&2; usage ;;
     esac
 done
+
+# Resolve resource group: arg > env var > prompt
+if [[ -z "$RESOURCE_GROUP" ]]; then
+    read -rp "Resource group (e.g. rg-iq-lab-dev): " RESOURCE_GROUP
+fi
+if [[ -z "$RESOURCE_GROUP" ]]; then
+    echo "ERROR: Resource group is required. Pass -g or set RESOURCE_GROUP env var." >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers

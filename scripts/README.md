@@ -199,34 +199,43 @@ Tests all 7 endpoints:
 
 ### Phase 5: Register the Foundry Agent
 
+Registration is a two-step process: upload knowledge files, then create the agent.
+
 <details><summary>PowerShell</summary>
 
 ```powershell
+# Both steps in one command:
 .\scripts\register-agent.ps1
+
+# Or run each step separately:
+uv run scripts/upload_knowledge.py -g <your-resource-group>
+uv run scripts/create_agent.py -g <your-resource-group>
 ```
 </details>
 
 <details><summary>Bash</summary>
 
 ```bash
+# Both steps in one command:
 ./scripts/register-agent.sh
+
+# Or run each step separately:
+uv run scripts/upload_knowledge.py -g <your-resource-group>
+uv run scripts/create_agent.py -g <your-resource-group>
 ```
 </details>
 
-This creates a gpt-4.1-mini **Prompt Agent** (new-style, visible in the Foundry portal)
-with MCP tools pointing at the co-hosted MCP server on the FastAPI tool service.
-Uses `AIProjectClient.agents.create_version()` with `PromptAgentDefinition` + `MCPTool`.
+Step 1 uploads device manuals and docs to a Foundry vector store for knowledge grounding.
+Step 2 creates a gpt-4.1-mini **Prompt Agent** (new-style, visible in the Foundry portal)
+with MCP tools + FileSearchTool pointing at the vector store.
 
-**Option A — New Agent API (recommended, automated via `uv run`):**
-```bash
-# uv auto-installs deps via PEP 723 inline metadata — no manual install needed
-uv run scripts/create_agent.py --resource-group <your-resource-group>
-```
+The vector store ID is persisted in `.agent-state.json` between steps so `create_agent.py`
+automatically attaches the `FileSearchTool`.
 
-**Option B — Portal (for manual/interactive setup):**
+**Option B -- Portal (for manual/interactive setup):**
 1. Go to [ai.azure.com](https://ai.azure.com)
 2. Create or select a project in your target deployment region
-3. Navigate to **Agents** → **+ New Agent**
+3. Navigate to **Agents** -> **+ New Agent**
 4. Set model to `gpt-4.1-mini`
 5. Paste system prompt from `foundry/prompts/system.md`
 6. Add MCP tool pointing at `https://<container-app-fqdn>/mcp` with label `iq-tools`
@@ -251,7 +260,7 @@ Try: `Summarize ticket TKT-0042`
 |--------|---------|-----------|
 | `deploy.ps1` | Full infrastructure + image deployment | `-SeedDatabase`, `-SkipBicep`, `-SkipImage`, `-ImageTag` |
 | `seed-database.ps1` | Schema + seed data to Azure SQL | `-GrantPermissions`, `-ServerName`, `-DatabaseName` |
-| `register-agent.ps1` | Foundry agent registration + SDK creation | `-AgentName`, `-ManualOnly` |
+| `register-agent.ps1` | Two-step agent registration (knowledge + agent) | `-SkipKnowledge`, `-ManualOnly` |
 | `smoke-test.ps1` | E2E endpoint verification | `-BaseUrl` (auto-detected from Bicep outputs) |
 
 ### Bash (macOS / Linux)
@@ -260,14 +269,15 @@ Try: `Summarize ticket TKT-0042`
 |--------|---------|-----------|
 | `deploy.sh` | Full infrastructure + image deployment | `--seed-database`, `-s`, `--skip-bicep`, `--skip-image`, `--image-tag` |
 | `seed-database.sh` | Schema + seed data to Azure SQL | `--grant-permissions`, `-s/--server-name`, `-d/--database-name` |
-| `register-agent.sh` | Foundry agent registration + SDK creation | `-n/--agent-name`, `--manual-only` |
+| `register-agent.sh` | Two-step agent registration (knowledge + agent) | `--skip-knowledge`, `--manual-only` |
 | `smoke-test.sh` | E2E endpoint verification | `-b` base URL (auto-detected from Bicep outputs) |
 
 ### Cross-Platform (Python)
 
 | Script | Purpose | Key Flags |
 |--------|---------|-----------|
-| `create_agent.py` | New Agent API: creates Prompt Agent with MCP tools (PEP 723 deps) | `--resource-group`, `--legacy` |
+| `upload_knowledge.py` | Upload device manuals to Foundry vector store (PEP 723 deps) | `--resource-group`, `--force` |
+| `create_agent.py` | Create Prompt Agent with MCP + FileSearch tools (PEP 723 deps) | `--resource-group`, `--vector-store-id`, `--legacy` |
 | `chat_agent.py` | Interactive chat via Responses API + MCP approval flow | `--resource-group`, `--agent-name`, `--single`, `--legacy` |
 
 ---
@@ -381,12 +391,15 @@ az containerapp revision list -n <ca-name> -g <rg> -o table
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+All scripts resolve the resource group from: CLI arg > `RESOURCE_GROUP` env var > interactive prompt.
+No hardcoded defaults -- scripts prompt if the resource group is not provided.
+
 ---
 
 ## Conventions
 
-- **uv only** — never pip (in scripts, Dockerfiles, CI, docs). `create_agent.py` uses PEP 723 inline deps so `uv run` auto-installs them.
+- **uv only** -- never pip (in scripts, Dockerfiles, CI, docs). `create_agent.py` and `upload_knowledge.py` use PEP 723 inline deps so `uv run` auto-installs them.
 - **Bicep naming:** `{type}-iq-lab-{env}` (e.g., `ca-tools-iq-lab-dev`)
-- **Managed identity** for all Azure auth — no passwords
-- **Parameterized SQL** only — no string concatenation
+- **Managed identity** for all Azure auth -- no passwords
+- **Parameterized SQL** only -- no string concatenation
 - See [CONVENTIONS.md](../CONVENTIONS.md) for full details

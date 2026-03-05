@@ -13,7 +13,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
-RESOURCE_GROUP="rg-iq-lab-dev"
+RESOURCE_GROUP="${RESOURCE_GROUP:-}"
 SERVER_NAME=""
 DATABASE_NAME="sqldb-iq"
 GRANT_PERMISSIONS=false
@@ -29,7 +29,7 @@ usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  -g, --resource-group NAME    Resource group (default: rg-iq-lab-dev)"
+    echo "  -g, --resource-group NAME    Resource group (env: RESOURCE_GROUP, or prompted)"
     echo "  -s, --server-name NAME       SQL server name (auto-detected if omitted)"
     echo "  -d, --database-name NAME     Database name (default: sqldb-iq)"
     echo "  --grant-permissions           Grant managed identity DB access"
@@ -47,6 +47,15 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1" >&2; usage ;;
     esac
 done
+
+# Resolve resource group: arg > env var > prompt
+if [[ -z "$RESOURCE_GROUP" ]]; then
+    read -rp "Resource group (e.g. rg-iq-lab-dev): " RESOURCE_GROUP
+fi
+if [[ -z "$RESOURCE_GROUP" ]]; then
+    echo "ERROR: Resource group is required. Pass -g or set RESOURCE_GROUP env var." >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -94,11 +94,12 @@ Additional operational docs uploaded as knowledge:
 - [x] Cross-reference: manual device models match `DEVICE_MODELS` in `generate_seed.py`
 
 #### Phase B.2 — Register Knowledge in Foundry
-- [x] Update `create_agent.py` to upload manual files via `project_client.agents.files.upload()`
-- [x] Register files as `VectorStoreKnowledge` with `FileSearchTool` on the agent definition
-- [x] Add `--no-knowledge` flag to `create_agent.py` (default: knowledge enabled)
+- [x] Create standalone `upload_knowledge.py` — uploads files via OpenAI client (`get_openai_client()`)
+- [x] `create_agent.py` reads `--vector-store-id` or `.agent-state.json`, registers `FileSearchTool`
+- [x] Add `--no-knowledge` flag to `create_agent.py` (skip FileSearch tool entirely)
 - [x] Store vector store ID in `.agent-state.json` for cleanup/re-creation
-- [x] Add idempotency guard — reuse existing vector store, `--force-knowledge` to re-upload
+- [x] Add idempotency guard — reuse existing vector store, `upload_knowledge.py --force` to re-upload
+- [x] Two-step wrapper scripts: `register-agent.ps1` / `register-agent.sh` (Step 1 upload, Step 2 register)
 
 #### Phase B.3 — Update System Prompt
 - [x] Add knowledge rule (Rule 6) to `foundry/prompts/system.md`
@@ -134,20 +135,22 @@ Additional operational docs uploaded as knowledge:
 
 ```mermaid
 sequenceDiagram
-  participant Script as create_agent.py
+  participant UL as upload_knowledge.py
+  participant CA as create_agent.py
   participant Foundry as AI Foundry
   participant VS as Vector Store
   participant Agent as Prompt Agent
 
-  Script->>Foundry: files.upload() × 9 files (7 manuals + 2 docs)
-  Foundry-->>Script: file_ids[]
+  UL->>Foundry: openai_client.files.create() × 9 files (7 manuals + 2 docs)
+  Foundry-->>UL: file_ids[]
 
-  Script->>Foundry: vector_stores.create(file_ids)
+  UL->>Foundry: openai_client.vector_stores.create(file_ids)
   Foundry->>VS: Index files (chunking + embedding)
-  Foundry-->>Script: vector_store_id
+  Foundry-->>UL: vector_store_id → .agent-state.json
 
-  Script->>Foundry: agents.create_version(tools=[MCPTool, FileSearchTool(vector_store_ids)])
-  Foundry-->>Script: agent_version
+  CA->>CA: Read vector_store_id from .agent-state.json
+  CA->>Foundry: agents.create_version(tools=[MCPTool, FileSearchTool(vector_store_ids)])
+  Foundry-->>CA: agent_version
 
   Note over Agent: At runtime, agent queries vector store for<br/>device-specific procedures alongside MCP tool calls
 ```

@@ -13,12 +13,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Defaults & argument parsing
 # ---------------------------------------------------------------------------
-RESOURCE_GROUP="rg-iq-lab-dev"
+RESOURCE_GROUP="${RESOURCE_GROUP:-}"
 BASE_URL=""
 
 usage() {
     echo "Usage: $0 [-g resource_group] [-b base_url]"
-    echo "  -g  Resource group (default: rg-iq-lab-dev)"
+    echo "  -g  Resource group (env: RESOURCE_GROUP, or prompted)"
     echo "  -b  Base URL override (auto-detected from Bicep outputs if omitted)"
     exit 1
 }
@@ -31,6 +31,15 @@ while getopts "g:b:h" opt; do
         *) usage ;;
     esac
 done
+
+# Resolve resource group: arg > env var > prompt (only if no -b)
+if [[ -z "$BASE_URL" && -z "$RESOURCE_GROUP" ]]; then
+    read -rp "Resource group (e.g. rg-iq-lab-dev): " RESOURCE_GROUP
+fi
+if [[ -z "$BASE_URL" && -z "$RESOURCE_GROUP" ]]; then
+    echo "ERROR: Resource group is required when -b is not set. Pass -g or set RESOURCE_GROUP env var." >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers
