@@ -5,7 +5,7 @@
 # Run:   docker run -p 8000:8000 --env-file .env iq-tools
 # ============================================================================
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # ---- System dependencies (ODBC 18 driver) ----------------------------------
 ENV DEBIAN_FRONTEND=noninteractive \
